@@ -1,0 +1,23 @@
+[package]
+name = "dnstap-proxy-replay"
+version = "0.1.0"
+authors = ["Fastly"]
+edition = "2018"
+build = "src/build.rs"
+
+[dependencies]
+async-channel = "1.6.1"
+bytes = "1.0.1"
+clap = "2.33.3"
+extfmt = "0.1.1"
+futures = "0.3.16"
+log = "0.4.14"
+prost = "0.8.0"
+simple-error = "0.2.3"
+stderrlog = "0.5.1"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1.7"
+tokio-util = { version = "0.6.7", features = ["codec", "io"] }
+
+[build-dependencies]
+prost-build = "0.8.0"
