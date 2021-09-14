@@ -2,6 +2,7 @@
 
 use anyhow::bail;
 use anyhow::Result;
+use async_channel::Sender;
 use futures::SinkExt;
 use log::*;
 use prost::Message;
@@ -19,7 +20,7 @@ use crate::framestreams_codec::{self, Frame, FrameStreamsCodec};
 pub struct FrameHandler {
     /// The send side of the async channel, used by [`FrameHandler`]'s to send decoded dnstap
     /// protobuf messages to the [`DnstapHandler`]'s.
-    channel_sender: async_channel::Sender<dnstap::Dnstap>,
+    channel_sender: Sender<dnstap::Dnstap>,
 
     /// The Unix stream to read frames from.
     stream: UnixStream,
@@ -37,7 +38,7 @@ pub struct FrameHandler {
 impl FrameHandler {
     /// Create a new [`FrameHandler`] that reads from [`stream`] and writes decoded protobuf
     /// messages to [`channel_sender`].
-    pub fn new(stream: UnixStream, channel_sender: async_channel::Sender<dnstap::Dnstap>) -> Self {
+    pub fn new(stream: UnixStream, channel_sender: Sender<dnstap::Dnstap>) -> Self {
         let stream_descr = format!("fd {}", stream.as_raw_fd());
 
         FrameHandler {
@@ -56,7 +57,7 @@ impl FrameHandler {
             self.stream_descr
         );
 
-        // Initialize the FrameStreams codec.
+        // Initialize the FrameStreams codec on the connected stream.
         let mut framed = Framed::with_capacity(
             &mut self.stream,
             FrameStreamsCodec {},
@@ -126,12 +127,9 @@ impl FrameHandler {
                             );
                         }
                         Frame::Data(mut payload) => {
-                            // Data: Let's process it.
-                            trace!("got a data payload");
-
                             // Accounting.
-                            crate::counters::DATA_FRAMES.inc();
-                            crate::counters::DATA_BYTES.inc_by(payload.len() as u64);
+                            crate::metrics::DATA_FRAMES.inc();
+                            crate::metrics::DATA_BYTES.inc_by(payload.len() as u64);
                             self.count_data_bytes += payload.len();
                             self.count_data_frames += 1;
 
@@ -139,9 +137,13 @@ impl FrameHandler {
                             match dnstap::Dnstap::decode(&mut payload) {
                                 // The message was successfully parsed, send it to a
                                 // [`DnstapHandler`] for further processing.
-                                Ok(d) => {
-                                    let _ = self.channel_sender.send(d).await;
-                                }
+                                Ok(d) => match self.channel_sender.send(d).await {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        bail!("{}: Unable to send dnstap protobuf message to channel: {}",
+                                              self.stream_descr, e);
+                                    }
+                                },
                                 // The payload failed to parse.
                                 Err(e) => {
                                     bail!(

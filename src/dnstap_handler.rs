@@ -3,8 +3,9 @@
 use anyhow::{bail, Result};
 use bytes::{BufMut, BytesMut};
 use log::*;
-use std::net::IpAddr;
-use std::{net::SocketAddr, time::Duration};
+use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
+use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
@@ -24,7 +25,8 @@ const DNS_RESPONSE_BUFFER_SIZE: usize = 4096;
 /// The response that the DNS server sends is then compared to the original DNS response message
 /// included in the dnstap payload and logged if they differ.
 ///
-/// This requires two specializations:
+/// This requires two specializations from the DNS server that we receive dnstap logging data and
+/// the DNS server that we re-send DNS queries to:
 ///
 /// 1. The DNS server that sends the dnstap payloads needs to produce `AUTH_RESPONSE` messages that
 ///    include both the `query_message` and `response_message` fields. It is optional to fill out
@@ -35,9 +37,13 @@ const DNS_RESPONSE_BUFFER_SIZE: usize = 4096;
 ///    prepended DNS queries that the [`DnstapHandler`] sends and will likely respond with the DNS
 ///    [`FORMERR`] or [`NOTIMP`] RCODEs.
 pub struct DnstapHandler {
-    /// The receive side of the async channel, used by [`DnstapHandler`]'s to receive decoded
+    /// The receive side of the async channel used by [`DnstapHandler`]'s to receive decoded
     /// dnstap messages from the [`FrameHandler`]'s.
     channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
+
+    /// The send side of the async channel, used by [`DnstapHandler`]'s to send mismatch dnstap
+    /// protobuf messages to the [`HttpHandler`].
+    channel_mismatch_sender: async_channel::Sender<dnstap::Dnstap>,
 
     /// Socket address/port of the DNS server to send DNS queries to.
     dns_address: SocketAddr,
@@ -51,16 +57,29 @@ pub struct DnstapHandler {
     recv_buf: [u8; DNS_RESPONSE_BUFFER_SIZE],
 }
 
+#[derive(Error, Debug)]
+enum DnstapHandlerError {
+    #[error("Mismatch between logged dnstap response and re-queried DNS response, expecting {0} but received {1}")]
+    Mismatch(String, String),
+
+    #[error("Timeout sending DNS query")]
+    Timeout,
+}
+
 impl DnstapHandler {
     /// Create a new [`DnstapHandler`] that receives decoded dnstap protobuf payloads from
     /// `channel_receiver`, synthesizes new DNS client queries and sends them to the DNS server
-    /// under test specified by the address/port in `dns_address`.
+    /// under test specified by the address/port in `dns_address`. Responses received from the DNS
+    /// server under test that don't match the original response in the dnstap payload will be sent
+    /// using `channel_mismatch_sender`.
     pub async fn new(
         channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
+        channel_mismatch_sender: async_channel::Sender<dnstap::Dnstap>,
         dns_address: SocketAddr,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
             channel_receiver,
+            channel_mismatch_sender,
             dns_address,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
@@ -99,8 +118,12 @@ impl DnstapHandler {
 
     /// Close and reopen the UDP client socket.
     async fn restart_socket(&mut self) -> Result<()> {
+        // Drop the old socket.
         self.socket = None;
+
+        // Setup the private UDP client socket for this handler again.
         self.maybe_setup_socket().await?;
+
         Ok(())
     }
 
@@ -124,7 +147,7 @@ impl DnstapHandler {
             match dtype {
                 // Handle a dnstap "Message" object.
                 dnstap::dnstap::Type::Message => {
-                    if let Some(msg) = d.message {
+                    if let Some(msg) = &d.message {
                         // Check if this is an `AUTH_RESPONSE` type dnstap "Message" object.
                         if let Some(dnstap::message::Type::AuthResponse) =
                             dnstap::message::Type::from_i32(msg.r#type)
@@ -132,27 +155,43 @@ impl DnstapHandler {
                             // Perform further processing on this message. On error, log the error
                             // and close and reopen the UDP client socket.
                             if let Err(e) = self.process_dnstap_message(msg).await {
-                                debug!("Error: {}", e);
-
-                                // The call to process_dnstap_message() might have failed with a
-                                // timeout, in which case we can't tell the difference between a
-                                // message that has genuinely been lost and one that might still be
-                                // processed by the DNS server under test and returned to us on a
-                                // subsequent socket read. If the latter happens, the lockstep
-                                // synchronization between a sent DNS query and a received DNS
-                                // response will be lost and every subsequent comparison between
-                                // originally logged response message and corresponding response
-                                // message received from the DNS server under test will fail
-                                // because the wrong messages are being compared.
-                                //
-                                // This kind of failure mode could be worked around by implementing
-                                // a state table for the outbound DNS queries sent to the DNS
-                                // server under test but this requires parsing some portions of the
-                                // DNS header and the question section as well as garbage
-                                // collection of the state table to avoid filling it with timed out
-                                // queries. The easier thing to do is to close the socket and open
-                                // a new one.
-                                self.restart_socket().await?;
+                                if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
+                                    match self.channel_mismatch_sender.try_send(d) {
+                                        Ok(_) => {
+                                            crate::metrics::CHANNEL_MISMATCH_TX
+                                                .with_label_values(&["success"])
+                                                .inc();
+                                        }
+                                        Err(_) => {
+                                            crate::metrics::CHANNEL_MISMATCH_TX
+                                                .with_label_values(&["error"])
+                                                .inc();
+                                        }
+                                    }
+                                    // Check if a re-query timeout occurred.
+                                    if let DnstapHandlerError::Timeout = e {
+                                        // In the case of a DNS query timeout, we can't tell the
+                                        // difference between a message that has genuinely been
+                                        // lost and one that might still be processed by the DNS
+                                        // server under test and returned to us on a subsequent
+                                        // socket read. If the latter happens, the lockstep
+                                        // synchronization between a sent DNS query and a received
+                                        // DNS response will be lost and every subsequent
+                                        // comparison between originally logged response message
+                                        // and corresponding response message received from the DNS
+                                        // server under test will fail because the wrong messages
+                                        // are being compared.
+                                        //
+                                        // This kind of failure mode could be worked around by
+                                        // implementing a state table for the outbound DNS queries
+                                        // sent to the DNS server under test but this requires
+                                        // parsing some portions of the DNS header and the question
+                                        // section as well as garbage collection of the state table
+                                        // to avoid filling it with timed out queries. The easier
+                                        // thing to do is to close the socket and open a new one.
+                                        self.restart_socket().await?;
+                                    }
+                                }
                             };
                         }
                     }
@@ -163,7 +202,7 @@ impl DnstapHandler {
     }
 
     /// Process a dnstap "Message" object.
-    async fn process_dnstap_message(&mut self, msg: dnstap::Message) -> Result<()> {
+    async fn process_dnstap_message(&mut self, msg: &dnstap::Message) -> Result<()> {
         // Check if we have a connected UDP socket to send DNS queries to.
         let socket = match &self.socket {
             Some(socket) => socket,
@@ -267,7 +306,7 @@ impl DnstapHandler {
         match timeout(DNS_QUERY_TIMEOUT, socket.recv(&mut self.recv_buf)).await {
             Ok(res) => match res {
                 Ok(n_bytes) => {
-                    crate::counters::DNS_QUERIES
+                    crate::metrics::DNS_QUERIES
                         .with_label_values(&["success"])
                         .inc();
 
@@ -282,35 +321,33 @@ impl DnstapHandler {
                     // message.
                     if response_message == &self.recv_buf[..n_bytes] {
                         // Match.
-                        crate::counters::DNS_COMPARISONS
+                        crate::metrics::DNS_COMPARISONS
                             .with_label_values(&["match"])
                             .inc();
                     } else {
                         // Mismatch.
-                        crate::counters::DNS_COMPARISONS
+                        crate::metrics::DNS_COMPARISONS
                             .with_label_values(&["mismatch"])
                             .inc();
 
-                        // Log the two varying DNS response messages for investigation.
-                        warn!(
-                            "Mismatch: received {} expecting {}",
+                        bail!(DnstapHandlerError::Mismatch(
                             hex::encode(&self.recv_buf[..n_bytes]),
                             hex::encode(response_message)
-                        );
+                        ));
                     }
                 }
                 Err(e) => {
-                    crate::counters::DNS_QUERIES
+                    crate::metrics::DNS_QUERIES
                         .with_label_values(&["error"])
                         .inc();
-                    bail!("{}", e);
+                    bail!(e);
                 }
             },
-            Err(e) => {
-                crate::counters::DNS_QUERIES
+            Err(_) => {
+                crate::metrics::DNS_QUERIES
                     .with_label_values(&["timeout"])
                     .inc();
-                bail!("{}", e);
+                bail!(DnstapHandlerError::Timeout);
             }
         }
 
@@ -320,7 +357,7 @@ impl DnstapHandler {
 
 /// Utility function that converts a slice of bytes into an [`IpAddr`]. Slices of length 4 are
 /// converted to IPv4 addresses and slices of length 16 are converted to IPv6 addresses. All other
-/// slice lengths are invalid.
+/// slice lengths are invalid. This is how IP addresses are encoded in dnstap protobuf messages.
 fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Option<IpAddr> {
     match value.len() {
         4 => {

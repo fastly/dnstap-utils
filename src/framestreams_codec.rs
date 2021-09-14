@@ -16,6 +16,8 @@ pub const FRAMESTREAMS_CONTROL_STOP: u32 = 0x03;
 pub const FRAMESTREAMS_CONTROL_READY: u32 = 0x04;
 pub const FRAMESTREAMS_CONTROL_FINISH: u32 = 0x05;
 
+pub const FRAMESTREAMS_CONTROL_FIELD_CONTENT_TYPE: u32 = 0x01;
+
 pub const FRAMESTREAMS_ESCAPE_SEQUENCE: u32 = 0x00;
 
 #[derive(Debug)]
@@ -65,7 +67,10 @@ impl Encoder<Frame> for FrameStreamsCodec {
                 dst.put_u32(FRAMESTREAMS_CONTROL_FINISH);
             }
             Frame::ControlUnknown(_) => todo!(),
-            Frame::Data(_) => todo!(),
+            Frame::Data(payload) => {
+                dst.put_u32(payload.len() as u32);
+                dst.put(payload);
+            }
         }
         Ok(())
     }
@@ -171,4 +176,14 @@ impl Decoder for FrameStreamsCodec {
             Ok(Some(Frame::Data(data)))
         }
     }
+}
+
+/// Helper function for encoding the "content type" payload used in the Frame Streams Ready,
+/// Accept, and Start control frames.
+pub fn encode_content_type_payload(content_type: &[u8]) -> BytesMut {
+    let mut buf = BytesMut::with_capacity(4 + 4 + content_type.len());
+    buf.put_u32(FRAMESTREAMS_CONTROL_FIELD_CONTENT_TYPE);
+    buf.put_u32(content_type.len() as u32);
+    buf.put(content_type);
+    buf
 }

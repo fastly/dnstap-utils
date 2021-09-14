@@ -1,13 +1,14 @@
 // Copyright 2021 Fastly, Inc.
 
 use anyhow::Result;
-use async_channel::bounded;
+use async_channel::{bounded, Receiver, Sender};
 use clap::{value_t, App, Arg};
 use log::*;
 use std::net::SocketAddr;
 use tokio::net::UnixListener;
 
-pub mod counters;
+/// Prometheus metrics.
+pub mod metrics;
 
 /// The dnstap payload processing handler.
 mod dnstap_handler;
@@ -30,10 +31,6 @@ pub mod dnstap {
     include!(concat!(env!("OUT_DIR"), "/dnstap.rs"));
 }
 
-/// The capacity of the bounded async MPMC channel used to distribute dnstap messages from
-/// [`FrameHandler`]'s to [`DnstapHandler`]'s.
-const CHANNEL_CAPACITY: usize = 10_000;
-
 /// Server configuration and state.
 struct Server {
     /// Filesystem path to start the Unix socket listener on.
@@ -49,13 +46,21 @@ struct Server {
     /// socket to send queries to the DNS server.
     num_dnstap_handlers: usize,
 
-    /// The send side of the async channel, used by [`FrameHandler`]'s to send decoded dnstap
+    /// The send side of the async channel used by [`FrameHandler`]'s to send decoded dnstap
     /// protobuf messages to the [`DnstapHandler`]'s.
-    channel_sender: async_channel::Sender<dnstap::Dnstap>,
+    channel_sender: Sender<dnstap::Dnstap>,
 
-    /// The receive side of the async channel, used by [`DnstapHandler`]'s to receive decoded
+    /// The receive side of the async channel used by [`DnstapHandler`]'s to receive decoded
     /// dnstap messages from the [`FrameHandler`]'s.
-    channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
+    channel_receiver: Receiver<dnstap::Dnstap>,
+
+    /// The send side of the async channel used by [`DnstapHandler`]'s to send mismatch dnstap
+    /// protobuf messages to the [`HttpHandler`].
+    channel_mismatch_sender: Sender<dnstap::Dnstap>,
+
+    /// The receive side of the async channel used by [`DnstapHandler`]'s to send mismatch dnstap
+    /// protobuf messages to the [`HttpHandler`].
+    channel_mismatch_receiver: Receiver<dnstap::Dnstap>,
 }
 
 impl Server {
@@ -65,8 +70,15 @@ impl Server {
         dns_address: SocketAddr,
         http_address: SocketAddr,
         num_dnstap_handlers: usize,
+        channel_capacity: usize,
+        channel_mismatch_capacity: usize,
     ) -> Self {
-        let (channel_sender, channel_receiver) = bounded(CHANNEL_CAPACITY);
+        // Create the channel for connecting [`FrameHandler`]'s and [`DnstapHandler`]'s.
+        let (channel_sender, channel_receiver) = bounded(channel_capacity);
+
+        // Create the channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
+        let (channel_mismatch_sender, channel_mismatch_receiver) =
+            bounded(channel_mismatch_capacity);
 
         Server {
             unix_path: String::from(unix_path),
@@ -75,23 +87,21 @@ impl Server {
             num_dnstap_handlers,
             channel_sender,
             channel_receiver,
+            channel_mismatch_sender,
+            channel_mismatch_receiver,
         }
     }
 
     /// Run the server. Binds a Unix socket listener to the filesystem and listens for incoming
-    /// connections. Each incoming connection is handled by a newly spawned [`FrameHandler`]. Also
-    /// starts up the number of [`DnstapHandler`]'s specified by the configuration. Creates an
-    /// async MPMC channel for the [`FrameHandler`]'s to send message objects to the
-    /// [`DnstapHandler`]'s for processing.
+    /// connections. Each incoming connection is handled by a newly spawned [`FrameHandler`].
+    ///
+    /// Also starts up the [`HttpHandler`] and the number of [`DnstapHandler`]'s specified by the
+    /// configuration. Each [`DnstapHandler`] creates its own UDP query socket for querying the
+    /// configured DNS server.
     async fn run(&mut self) -> Result<()> {
-        let _ = std::fs::remove_file(&self.unix_path);
-        let listener = UnixListener::bind(&self.unix_path)?;
-        info!("Listening on Unix socket path {}", &self.unix_path);
-        info!("Sending DNS queries to server {}", &self.dns_address);
-        info!("Using {} UDP DNS client sockets", self.num_dnstap_handlers);
-
         // Start up the [`HttpHandler`].
-        let mut http_handler = HttpHandler::new(self.http_address);
+        let http_handler =
+            HttpHandler::new(self.http_address, self.channel_mismatch_receiver.clone());
         tokio::spawn(async move {
             if let Err(err) = http_handler.run().await {
                 error!("Hyper HTTP server error: {}", err);
@@ -101,8 +111,12 @@ impl Server {
         // Start up the [`DnstapHandler`]'s.
         for _ in 0..self.num_dnstap_handlers {
             // Create a new [`DnstapHandler`] and give it a cloned channel receiver.
-            let mut dnstap_handler =
-                DnstapHandler::new(self.channel_receiver.clone(), self.dns_address).await?;
+            let mut dnstap_handler = DnstapHandler::new(
+                self.channel_receiver.clone(),
+                self.channel_mismatch_sender.clone(),
+                self.dns_address,
+            )
+            .await?;
 
             // Spawn a new task to run the [`DnstapHandler`].
             tokio::spawn(async move {
@@ -111,6 +125,15 @@ impl Server {
                 }
             });
         }
+        info!(
+            "Sending DNS queries to server {} using {} UDP query sockets",
+            &self.dns_address, self.num_dnstap_handlers
+        );
+
+        // Bind to the configured Unix socket. Remove the socket file if it exists.
+        let _ = std::fs::remove_file(&self.unix_path);
+        let listener = UnixListener::bind(&self.unix_path)?;
+        info!("Listening on Unix socket path {}", &self.unix_path);
 
         // Accept incoming connections on the FrameStreams socket.
         loop {
@@ -137,6 +160,22 @@ impl Server {
 fn main() -> Result<()> {
     let args = App::new("dnstap_replay")
         .about("Replays dnstap DNS messages to a DNS server")
+        .arg(
+            Arg::with_name("channel-capacity")
+                .long("channel-capacity")
+                .value_name("NUM_PAYLOADS")
+                .help("Capacity of async channel for handler payload distribution")
+                .takes_value(true)
+                .default_value("10000"),
+        )
+        .arg(
+            Arg::with_name("channel-mismatch-capacity")
+                .long("channel-mismatch-capacity")
+                .value_name("NUM_PAYLOADS")
+                .help("Capacity of async channel for /mismatches endpoint buffer")
+                .takes_value(true)
+                .default_value("100000"),
+        )
         .arg(
             Arg::with_name("unix")
                 .short("u")
@@ -187,14 +226,15 @@ fn main() -> Result<()> {
         .init()
         .unwrap();
 
-    // Collect the command-line configuration parameters.
-    let unix = args.value_of("unix").unwrap();
-    let dns = value_t!(args, "dns", SocketAddr).unwrap_or_else(|e| e.exit());
-    let http = value_t!(args, "http", SocketAddr).unwrap_or_else(|e| e.exit());
-    let n_sockets = value_t!(args, "num-sockets", usize).unwrap_or_else(|e| e.exit());
-
     // Create a [`Server`] with the command-line parameters.
-    let mut server = Server::new(unix, dns, http, n_sockets);
+    let mut server = Server::new(
+        &value_t!(args, "unix", String).unwrap_or_else(|e| e.exit()),
+        value_t!(args, "dns", SocketAddr).unwrap_or_else(|e| e.exit()),
+        value_t!(args, "http", SocketAddr).unwrap_or_else(|e| e.exit()),
+        value_t!(args, "num-sockets", usize).unwrap_or_else(|e| e.exit()),
+        value_t!(args, "channel-capacity", usize).unwrap_or_else(|e| e.exit()),
+        value_t!(args, "channel-mismatch-capacity", usize).unwrap_or_else(|e| e.exit()),
+    );
 
     // Start the Tokio runtime.
     tokio::runtime::Builder::new_multi_thread()
