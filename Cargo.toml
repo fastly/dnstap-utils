@@ -1,5 +1,5 @@
 [package]
-name = "dnstap-proxy-replay"
+name = "dnstap-utils"
 version = "0.1.0"
 authors = ["Fastly"]
 edition = "2018"
