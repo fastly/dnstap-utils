@@ -19,11 +19,11 @@ const DNS_RESPONSE_BUFFER_SIZE: usize = 4096;
 
 /// Process the dnstap protobuf payloads and re-send them to the DNS server under test.
 ///
-/// Decoded protobuf payloads are received over a channel from a [`FrameHandler`]. The original
-/// address of the DNS client that sent the DNS query is used to construct a PROXY v2 header which
-/// is prepended to the DNS query which is sent to the DNS server specified in the configuration.
-/// The response that the DNS server sends is then compared to the original DNS response message
-/// included in the dnstap payload and logged if they differ.
+/// Decoded protobuf payloads are received over a channel from a [`crate::FrameHandler`]. The
+/// original address of the DNS client that sent the DNS query is used to construct a PROXY v2
+/// header which is prepended to the DNS query which is sent to the DNS server specified in the
+/// configuration.  The response that the DNS server sends is then compared to the original DNS
+/// response message included in the dnstap payload and logged if they differ.
 ///
 /// This requires two specializations from the DNS server that we receive dnstap logging data and
 /// the DNS server that we re-send DNS queries to:
@@ -35,14 +35,14 @@ const DNS_RESPONSE_BUFFER_SIZE: usize = 4096;
 /// 2. The DNS server under test needs to understand the PROXY v2 header which the
 ///    [`DnstapHandler`] prepends to the DNS query. An unmodified DNS server will not recognize the
 ///    prepended DNS queries that the [`DnstapHandler`] sends and will likely respond with the DNS
-///    [`FORMERR`] or [`NOTIMP`] RCODEs.
+///    `FORMERR` or `NOTIMP` RCODEs.
 pub struct DnstapHandler {
     /// The receive side of the async channel used by [`DnstapHandler`]'s to receive decoded
-    /// dnstap messages from the [`FrameHandler`]'s.
+    /// dnstap messages from the [`crate::FrameHandler`]'s.
     channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
 
     /// The send side of the async channel, used by [`DnstapHandler`]'s to send mismatch dnstap
-    /// protobuf messages to the [`HttpHandler`].
+    /// protobuf messages to the [`crate::HttpHandler`].
     channel_mismatch_sender: async_channel::Sender<dnstap::Dnstap>,
 
     /// Socket address/port of the DNS server to send DNS queries to.
@@ -127,7 +127,8 @@ impl DnstapHandler {
         Ok(())
     }
 
-    /// Receive dnstap protobuf payloads from a [`FrameHandler`] and perform further processing.
+    /// Receive dnstap protobuf payloads from a [`crate::FrameHandler`] and perform further
+    /// processing.
     pub async fn run(&mut self) -> Result<()> {
         while let Ok(d) = self.channel_receiver.recv().await {
             // Check if the UDP client socket needs to be re-created.

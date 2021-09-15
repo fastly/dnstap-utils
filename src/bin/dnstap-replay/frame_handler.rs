@@ -16,10 +16,10 @@ use crate::framestreams_codec::{self, Frame, FrameStreamsCodec};
 
 /// Per-connection FrameStreams protocol handler. Reads delimited frames from the Unix socket
 /// stream, decodes the protobuf payload, and then sends the protobuf object over a channel to a
-/// [`DnstapHandler`] for further processing.
+/// [`crate::DnstapHandler`] for further processing.
 pub struct FrameHandler {
     /// The send side of the async channel, used by [`FrameHandler`]'s to send decoded dnstap
-    /// protobuf messages to the [`DnstapHandler`]'s.
+    /// protobuf messages to the [`crate::DnstapHandler`]'s.
     channel_sender: Sender<dnstap::Dnstap>,
 
     /// The Unix stream to read frames from.
@@ -36,8 +36,8 @@ pub struct FrameHandler {
 }
 
 impl FrameHandler {
-    /// Create a new [`FrameHandler`] that reads from [`stream`] and writes decoded protobuf
-    /// messages to [`channel_sender`].
+    /// Create a new [`FrameHandler`] that reads from `stream` and writes decoded protobuf messages
+    /// to `channel_sender`.
     pub fn new(stream: UnixStream, channel_sender: Sender<dnstap::Dnstap>) -> Self {
         let stream_descr = format!("fd {}", stream.as_raw_fd());
 
