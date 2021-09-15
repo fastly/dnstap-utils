@@ -3,7 +3,6 @@ name = "dnstap-utils"
 version = "0.1.0"
 authors = ["Fastly"]
 edition = "2018"
-build = "src/build.rs"
 
 [dependencies]
 anyhow = "1.0.43"
