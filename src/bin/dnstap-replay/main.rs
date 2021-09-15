@@ -26,10 +26,7 @@ use http_handler::*;
 pub mod framestreams_codec;
 
 /// The generated protobuf definitions for the dnstap protocol.
-pub mod dnstap {
-    #![allow(clippy::module_inception)]
-    include!(concat!(env!("OUT_DIR"), "/dnstap.rs"));
-}
+use dnstap_utils::dnstap;
 
 /// Server configuration and state.
 struct Server {
