@@ -157,40 +157,33 @@ impl DnstapHandler {
                             // and close and reopen the UDP client socket.
                             if let Err(e) = self.process_dnstap_message(msg).await {
                                 if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
-                                    match self.channel_mismatch_sender.try_send(d) {
-                                        Ok(_) => {
-                                            crate::metrics::CHANNEL_MISMATCH_TX
-                                                .with_label_values(&["success"])
-                                                .inc();
+                                    match e {
+                                        DnstapHandlerError::Mismatch(_, _) => {
+                                            self.send_mismatch(d);
                                         }
-                                        Err(_) => {
-                                            crate::metrics::CHANNEL_MISMATCH_TX
-                                                .with_label_values(&["error"])
-                                                .inc();
+                                        DnstapHandlerError::Timeout => {
+                                            // In the case of a DNS query timeout, we can't tell
+                                            // the difference between a message that has genuinely
+                                            // been lost and one that might still be processed by
+                                            // the DNS server under test and returned to us on a
+                                            // subsequent socket read. If the latter happens, the
+                                            // lockstep synchronization between a sent DNS query
+                                            // and a received DNS response will be lost and every
+                                            // subsequent comparison between originally logged
+                                            // response message and corresponding response message
+                                            // received from the DNS server under test will fail
+                                            // because the wrong messages are being compared.
+                                            //
+                                            // This kind of failure mode could be worked around by
+                                            // implementing a state table for the outbound DNS
+                                            // queries sent to the DNS server under test but this
+                                            // requires parsing some portions of the DNS header and
+                                            // the question section as well as garbage collection
+                                            // of the state table to avoid filling it with timed
+                                            // out queries. The easier thing to do is to close the
+                                            // socket and open a new one.
+                                            self.restart_socket().await?;
                                         }
-                                    }
-                                    // Check if a re-query timeout occurred.
-                                    if let DnstapHandlerError::Timeout = e {
-                                        // In the case of a DNS query timeout, we can't tell the
-                                        // difference between a message that has genuinely been
-                                        // lost and one that might still be processed by the DNS
-                                        // server under test and returned to us on a subsequent
-                                        // socket read. If the latter happens, the lockstep
-                                        // synchronization between a sent DNS query and a received
-                                        // DNS response will be lost and every subsequent
-                                        // comparison between originally logged response message
-                                        // and corresponding response message received from the DNS
-                                        // server under test will fail because the wrong messages
-                                        // are being compared.
-                                        //
-                                        // This kind of failure mode could be worked around by
-                                        // implementing a state table for the outbound DNS queries
-                                        // sent to the DNS server under test but this requires
-                                        // parsing some portions of the DNS header and the question
-                                        // section as well as garbage collection of the state table
-                                        // to avoid filling it with timed out queries. The easier
-                                        // thing to do is to close the socket and open a new one.
-                                        self.restart_socket().await?;
                                     }
                                 }
                             };
@@ -353,6 +346,21 @@ impl DnstapHandler {
         }
 
         Ok(())
+    }
+
+    fn send_mismatch(&self, d: dnstap::Dnstap) {
+        match self.channel_mismatch_sender.try_send(d) {
+            Ok(_) => {
+                crate::metrics::CHANNEL_MISMATCH_TX
+                    .with_label_values(&["success"])
+                    .inc();
+            }
+            Err(_) => {
+                crate::metrics::CHANNEL_MISMATCH_TX
+                    .with_label_values(&["error"])
+                    .inc();
+            }
+        }
     }
 }
 
