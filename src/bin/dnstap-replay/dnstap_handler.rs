@@ -142,56 +142,52 @@ impl DnstapHandler {
 
     /// Process the outer dnstap container and if it contains a dnstap "Message" object of type
     /// `AUTH_RESPONSE`, perform further processing on it.
-    async fn process_dnstap(&mut self, d: dnstap::Dnstap) -> Result<()> {
-        // Extract the dnstap object type. Currently only "Message" objects are defined.
-        if let Some(dtype) = dnstap::dnstap::Type::from_i32(d.r#type) {
-            match dtype {
-                // Handle a dnstap "Message" object.
-                dnstap::dnstap::Type::Message => {
-                    if let Some(msg) = &d.message {
-                        // Check if this is an `AUTH_RESPONSE` type dnstap "Message" object.
-                        if let Some(dnstap::message::Type::AuthResponse) =
-                            dnstap::message::Type::from_i32(msg.r#type)
-                        {
-                            // Perform further processing on this message. On error, log the error
-                            // and close and reopen the UDP client socket.
-                            if let Err(e) = self.process_dnstap_message(msg).await {
-                                if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
-                                    match e {
-                                        DnstapHandlerError::Mismatch(_, _) => {
-                                            self.send_mismatch(d);
-                                        }
-                                        DnstapHandlerError::Timeout => {
-                                            // In the case of a DNS query timeout, we can't tell
-                                            // the difference between a message that has genuinely
-                                            // been lost and one that might still be processed by
-                                            // the DNS server under test and returned to us on a
-                                            // subsequent socket read. If the latter happens, the
-                                            // lockstep synchronization between a sent DNS query
-                                            // and a received DNS response will be lost and every
-                                            // subsequent comparison between originally logged
-                                            // response message and corresponding response message
-                                            // received from the DNS server under test will fail
-                                            // because the wrong messages are being compared.
-                                            //
-                                            // This kind of failure mode could be worked around by
-                                            // implementing a state table for the outbound DNS
-                                            // queries sent to the DNS server under test but this
-                                            // requires parsing some portions of the DNS header and
-                                            // the question section as well as garbage collection
-                                            // of the state table to avoid filling it with timed
-                                            // out queries. The easier thing to do is to close the
-                                            // socket and open a new one.
-                                            self.restart_socket().await?;
-                                        }
-                                    }
-                                }
-                            };
-                        }
-                    }
+    async fn process_dnstap(&mut self, mut d: dnstap::Dnstap) -> Result<()> {
+        // Currently only "Message" objects are defined.
+        if dnstap::dnstap::Type::from_i32(d.r#type) != Some(dnstap::dnstap::Type::Message) {
+            return Ok(());
+        }
+
+        let msg = match &d.message {
+            Some(msg) => msg,
+            None => return Ok(()),
+        };
+
+        // Check if this is an `AUTH_RESPONSE` type dnstap "Message" object.
+        if dnstap::message::Type::from_i32(msg.r#type) != Some(dnstap::message::Type::AuthResponse)
+        {
+            return Ok(());
+        }
+
+        // Perform further processing on this message. On error, log the error and close and reopen
+        // the UDP client socket.
+        if let Err(e) = self.process_dnstap_message(msg).await {
+            if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
+                self.send_mismatch(d);
+
+                // Check if a re-query timeout occurred.
+                if let DnstapHandlerError::Timeout = e {
+                    // In the case of a DNS query timeout, we can't tell the difference between
+                    // a message that has genuinely been lost and one that might still be
+                    // processed by the DNS server under test and returned to us on a
+                    // subsequent socket read. If the latter happens, the lockstep
+                    // synchronization between a sent DNS query and a received DNS response
+                    // will be lost and every subsequent comparison between originally logged
+                    // response message and corresponding response message received from the
+                    // DNS server under test will fail because the wrong messages are being
+                    // compared.
+                    //
+                    // This kind of failure mode could be worked around by implementing a state
+                    // table for the outbound DNS queries sent to the DNS server under test but
+                    // this requires parsing some portions of the DNS header and the question
+                    // section as well as garbage collection of the state table to avoid
+                    // filling it with timed out queries. The easier thing to do is to close
+                    // the socket and open a new one.
+                    self.restart_socket().await?;
                 }
             }
         }
+
         Ok(())
     }
 
