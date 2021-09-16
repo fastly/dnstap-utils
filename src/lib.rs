@@ -3,3 +3,5 @@ pub mod dnstap {
     #![allow(rustdoc::bare_urls)]
     include!(concat!(env!("OUT_DIR"), "/dnstap.rs"));
 }
+
+pub mod framestreams_codec;
