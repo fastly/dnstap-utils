@@ -1,7 +1,7 @@
 // Copyright 2021 Fastly, Inc.
 
 use anyhow::{bail, Result};
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
@@ -59,11 +59,33 @@ pub struct DnstapHandler {
 
 #[derive(Error, Debug)]
 enum DnstapHandlerError {
-    #[error("Mismatch between logged dnstap response and re-queried DNS response, expecting {0} but received {1}")]
-    Mismatch(String, String),
+    #[error("Mismatch between logged dnstap response and re-queried DNS response, expecting {1} but received {2}")]
+    Mismatch(Bytes, String, String),
 
     #[error("Timeout sending DNS query")]
     Timeout,
+}
+
+impl DnstapHandlerError {
+    pub fn serialize(&self) -> Bytes {
+        let prefix = b"dnstap-replay/DnstapHandlerError\x00";
+        match self {
+            DnstapHandlerError::Mismatch(mismatch, _, _) => {
+                let mut b = BytesMut::with_capacity(prefix.len() + 4 + mismatch.len());
+                b.extend_from_slice(prefix);
+                b.put_u32(1);
+                b.extend_from_slice(mismatch);
+                b
+            }
+            DnstapHandlerError::Timeout => {
+                let mut b = BytesMut::with_capacity(prefix.len() + 4);
+                b.extend_from_slice(prefix);
+                b.put_u32(2);
+                b
+            }
+        }
+        .freeze()
+    }
 }
 
 impl DnstapHandler {
@@ -163,6 +185,12 @@ impl DnstapHandler {
         // the UDP client socket.
         if let Err(e) = self.process_dnstap_message(msg).await {
             if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
+                // Serialize the [`DnstapHandlerError`] instance and export it via the dnstap
+                // object's `extra` field.
+                d.extra = Some(e.serialize().to_vec());
+
+                // Send the dnstap message to the mismatch channel so that it can be retrieved from
+                // the /mismatches HTTP endpoint.
                 self.send_mismatch(d);
 
                 // Check if a re-query timeout occurred.
@@ -321,8 +349,9 @@ impl DnstapHandler {
                             .inc();
 
                         bail!(DnstapHandlerError::Mismatch(
+                            Bytes::copy_from_slice(&self.recv_buf[..n_bytes]),
                             hex::encode(&self.recv_buf[..n_bytes]),
-                            hex::encode(response_message)
+                            hex::encode(response_message),
                         ));
                     }
                 }
