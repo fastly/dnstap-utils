@@ -3,6 +3,7 @@
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
+use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use thiserror::Error;
@@ -233,7 +234,7 @@ impl DnstapHandler {
         // address of the original client that sent the DNS query to the DNS server that logged the
         // dnstap message.
         let query_address = match &msg.query_address {
-            Some(addr) => try_from_u8_slice_for_ipaddr(addr).unwrap(),
+            Some(addr) => try_from_u8_slice_for_ipaddr(addr)?,
             None => return Ok(()),
         };
 
@@ -329,15 +330,13 @@ impl DnstapHandler {
                         .inc();
 
                     // A DNS response message was successfully received.
-                    trace!(
-                        "Received DNS response: {}",
-                        hex::encode(&self.recv_buf[..n_bytes])
-                    );
+                    let received_message = &self.recv_buf[..n_bytes];
+                    trace!("Received DNS response: {}", hex::encode(received_message));
 
                     // Check if the DNS response message received from the DNS server under test is
                     // identical to the original DNS response message recorded in the dnstap
                     // message.
-                    if response_message == &self.recv_buf[..n_bytes] {
+                    if response_message == received_message {
                         // Match.
                         crate::metrics::DNS_COMPARISONS
                             .with_label_values(&["match"])
@@ -349,8 +348,8 @@ impl DnstapHandler {
                             .inc();
 
                         bail!(DnstapHandlerError::Mismatch(
-                            Bytes::copy_from_slice(&self.recv_buf[..n_bytes]),
-                            hex::encode(&self.recv_buf[..n_bytes]),
+                            Bytes::copy_from_slice(received_message),
+                            hex::encode(received_message),
                             hex::encode(response_message),
                         ));
                     }
@@ -392,18 +391,13 @@ impl DnstapHandler {
 /// Utility function that converts a slice of bytes into an [`IpAddr`]. Slices of length 4 are
 /// converted to IPv4 addresses and slices of length 16 are converted to IPv6 addresses. All other
 /// slice lengths are invalid. This is how IP addresses are encoded in dnstap protobuf messages.
-fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Option<IpAddr> {
+fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Result<IpAddr> {
     match value.len() {
-        4 => {
-            let mut x: [u8; 4] = [0, 0, 0, 0];
-            x.copy_from_slice(value);
-            Some(IpAddr::from(x))
-        }
-        16 => {
-            let mut x: [u8; 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            x.copy_from_slice(value);
-            Some(IpAddr::from(x))
-        }
-        _ => None,
+        4 => Ok(IpAddr::from(<[u8; 4]>::try_from(value)?)),
+        16 => Ok(IpAddr::from(<[u8; 16]>::try_from(value)?)),
+        _ => bail!(
+            "Cannot decode an IP address from a {} byte field",
+            value.len()
+        ),
     }
 }
