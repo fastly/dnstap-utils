@@ -53,50 +53,32 @@ struct Server {
 /// Command-line arguments.
 #[derive(Clap, Clone)]
 struct Opts {
-    #[clap(
-        long,
-        about = "Capacity of async channel for handler payload distribution",
-        default_value = "10000"
-    )]
+    /// Capacity of async channel for handler payload distribution
+    #[clap(long, default_value = "10000")]
     channel_capacity: usize,
 
-    #[clap(
-        long,
-        about = "Capacity of async channel for /mismatches endpoint buffer",
-        default_value = "100000"
-    )]
+    /// Capacity of async channel for /mismatches endpoint buffer
+    #[clap(long, default_value = "100000")]
     channel_mismatch_capacity: usize,
 
-    #[clap(
-        long,
-        name = "DNS IP:PORT",
-        about = "UDP DNS server and port to send queries to"
-    )]
+    /// UDP DNS server and port to send queries to
+    #[clap(long, name = "DNS IP:PORT")]
     dns: SocketAddr,
 
-    #[clap(
-        long,
-        name = "HTTP IP:PORT",
-        about = "HTTP server socket to listen on for stats and reporting"
-    )]
+    /// HTTP server socket to listen on for stats and reporting
+    #[clap(long, name = "HTTP IP:PORT")]
     http: SocketAddr,
 
-    #[clap(
-        long,
-        about = "Number of UDP client sockets to use to send queries to DNS server",
-        default_value = "10"
-    )]
+    /// Number of UDP client sockets to use to send queries to DNS server
+    #[clap(long, default_value = "10")]
     num_sockets: usize,
 
-    #[clap(long, name = "PATH", about = "Unix socket path to listen on")]
+    /// Unix socket path to listen on
+    #[clap(long, name = "PATH")]
     unix: String,
 
-    #[clap(
-        short,
-        long,
-        about = "Increase verbosity level",
-        parse(from_occurrences)
-    )]
+    /// Increase verbosity level
+    #[clap(short, long, parse(from_occurrences))]
     verbose: usize,
 }
 
