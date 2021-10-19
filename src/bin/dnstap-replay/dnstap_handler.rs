@@ -49,6 +49,9 @@ pub struct DnstapHandler {
     /// Socket address/port of the DNS server to send DNS queries to.
     dns_address: SocketAddr,
 
+    /// Whether to add PROXY v2 header to re-sent DNS queries.
+    proxy: bool,
+
     /// Per-handler DNS client socket to use to send DNS queries to the DNS server under test. This
     /// is an [`Option<UdpSocket>`] rather than a [`UdpSocket`] because in the case of a timeout
     /// the socket will need to be closed and reopened.
@@ -65,6 +68,9 @@ enum DnstapHandlerError {
 
     #[error("Timeout sending DNS query")]
     Timeout,
+
+    #[error("dnstap payload is missing a required field")]
+    MissingField,
 }
 
 impl DnstapHandlerError {
@@ -84,6 +90,12 @@ impl DnstapHandlerError {
                 b.put_u32(2);
                 b
             }
+            DnstapHandlerError::MissingField => {
+                let mut b = BytesMut::with_capacity(prefix.len() + 4);
+                b.extend_from_slice(prefix);
+                b.put_u32(3);
+                b
+            }
         }
         .freeze()
     }
@@ -99,11 +111,13 @@ impl DnstapHandler {
         channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
         channel_mismatch_sender: async_channel::Sender<dnstap::Dnstap>,
         dns_address: SocketAddr,
+        proxy: bool,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
             channel_receiver,
             channel_mismatch_sender,
             dns_address,
+            proxy,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
         };
@@ -182,37 +196,63 @@ impl DnstapHandler {
             return Ok(());
         }
 
-        // Perform further processing on this message. On error, log the error and close and reopen
-        // the UDP client socket.
-        if let Err(e) = self.process_dnstap_message(msg).await {
-            if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
-                // Serialize the [`DnstapHandlerError`] instance and export it via the dnstap
-                // object's `extra` field.
-                d.extra = Some(e.serialize().to_vec());
+        // Perform further processing on this message. On timeout, log the error and close and
+        // reopen the UDP client socket.
+        match self.process_dnstap_message(msg).await {
+            Ok(_) => {
+                crate::metrics::DNSTAP_PAYLOADS
+                    .with_label_values(&["success"])
+                    .inc();
+            }
+            Err(e) => {
+                crate::metrics::DNSTAP_PAYLOADS
+                    .with_label_values(&["error"])
+                    .inc();
 
-                // Send the dnstap message to the mismatch channel so that it can be retrieved from
-                // the /mismatches HTTP endpoint.
-                self.send_mismatch(d);
+                if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
+                    // Serialize the [`DnstapHandlerError`] instance and export it via the dnstap
+                    // object's `extra` field.
+                    d.extra = Some(e.serialize().to_vec());
 
-                // Check if a re-query timeout occurred.
-                if let DnstapHandlerError::Timeout = e {
-                    // In the case of a DNS query timeout, we can't tell the difference between
-                    // a message that has genuinely been lost and one that might still be
-                    // processed by the DNS server under test and returned to us on a
-                    // subsequent socket read. If the latter happens, the lockstep
-                    // synchronization between a sent DNS query and a received DNS response
-                    // will be lost and every subsequent comparison between originally logged
-                    // response message and corresponding response message received from the
-                    // DNS server under test will fail because the wrong messages are being
-                    // compared.
-                    //
-                    // This kind of failure mode could be worked around by implementing a state
-                    // table for the outbound DNS queries sent to the DNS server under test but
-                    // this requires parsing some portions of the DNS header and the question
-                    // section as well as garbage collection of the state table to avoid
-                    // filling it with timed out queries. The easier thing to do is to close
-                    // the socket and open a new one.
-                    self.restart_socket().await?;
+                    // Send the dnstap message to the mismatch channel so that it can be retrieved
+                    // from the /mismatches HTTP endpoint.
+                    self.send_mismatch(d);
+
+                    match e {
+                        DnstapHandlerError::Mismatch(_, _, _) => {
+                            crate::metrics::DNS_COMPARISONS
+                                .with_label_values(&["mismatch"])
+                                .inc();
+                        }
+
+                        DnstapHandlerError::Timeout => {
+                            crate::metrics::DNS_QUERIES
+                                .with_label_values(&["timeout"])
+                                .inc();
+
+                            // In the case of a DNS query timeout, we can't tell the difference
+                            // between a message that has genuinely been lost and one that might
+                            // still be processed by the DNS server under test and returned to us
+                            // on a subsequent socket read. If the latter happens, the lockstep
+                            // synchronization between a sent DNS query and a received DNS response
+                            // will be lost and every subsequent comparison between originally
+                            // logged response message and corresponding response message received
+                            // from the DNS server under test will fail because the wrong messages
+                            // are being compared.
+                            //
+                            // This kind of failure mode could be worked around by implementing a
+                            // state table for the outbound DNS queries sent to the DNS server
+                            // under test but this requires parsing some portions of the DNS header
+                            // and the question section as well as garbage collection of the state
+                            // table to avoid filling it with timed out queries. The easier thing
+                            // to do is to close the socket and open a new one.
+                            self.restart_socket().await?;
+                        }
+
+                        DnstapHandlerError::MissingField => {
+                            // Already handled by metric increment above.
+                        }
+                    }
                 }
             }
         }
@@ -230,20 +270,6 @@ impl DnstapHandler {
             }
         };
 
-        // Extract the `query_address` field and convert it to an [`IpAddr`]. This is the IP
-        // address of the original client that sent the DNS query to the DNS server that logged the
-        // dnstap message.
-        let query_address = match &msg.query_address {
-            Some(addr) => try_from_u8_slice_for_ipaddr(addr)?,
-            None => return Ok(()),
-        };
-
-        // Extract the `query_port` field.
-        let query_port = match &msg.query_port {
-            Some(port) => *port as u16,
-            None => return Ok(()),
-        };
-
         // Extract the `query_message` field. This is the original DNS query message sent to the
         // DNS server that logged the dnstap message.
         let query_message = match &msg.query_message {
@@ -258,59 +284,17 @@ impl DnstapHandler {
             None => return Ok(()),
         };
 
-        // Create a buffer for containing the PROXY v2 payload and the original DNS client message.
-        // The PROXY v2 payload that we generate will be small (<100 bytes) and DNS query messages
-        // are restricted by the protocol to a maximum size of 512 bytes.
+        // Create a buffer for containing the original DNS client message, optionally with a PROXY
+        // v2 header prepended. The PROXY v2 payload that we generate will be small (<100 bytes)
+        // and DNS query messages are restricted by the protocol to a maximum size of 512 bytes.
         let mut buf = BytesMut::with_capacity(1024);
 
-        // Add the PROXY v2 signature.
-        buf.put(&b"\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A"[..]);
+        // Add the PROXY v2 payload, if the dnstap handler has been configured to do so.
+        if self.proxy {
+            add_proxy_payload(&mut buf, msg)?;
+        }
 
-        // Add the PROXY version (2) and command (1), PROXY.
-        buf.put_u8(0x21);
-
-        // Add the PROXY v2 address block.
-        match query_address {
-            IpAddr::V4(addr) => {
-                // UDP-over-IPv4: protocol constant 0x12.
-                buf.put_u8(0x12);
-
-                // Size of the UDP-over-IPv4 address block: 12 bytes. There are two IPv4 addresses
-                // (4 bytes each) and two UDP port numbers (2 bytes each).
-                buf.put_u16(12);
-
-                // Original IPv4 source address.
-                buf.put_slice(&addr.octets());
-
-                // Original IPv4 destination address. Use 0.0.0.0 since it doesn't matter and the
-                // dnstap message payload may not have it.
-                buf.put_u32(0);
-            }
-            IpAddr::V6(addr) => {
-                // UDP-over-IPv6: protocol constant 0x22.
-                buf.put_u8(0x22);
-
-                // Size of the UDP-over-IPv6 address block: 36 bytes. There are two IPv6 addresses
-                // (16 bytes each) and two UDP port numbers (2 bytes each).
-                buf.put_u16(36);
-
-                // Original IPv6 source address.
-                buf.put_slice(&addr.octets());
-
-                // Original IPv6 destination address. Use :: since it doesn't matter and the dnstap
-                // message payload may not have it.
-                buf.put_u128(0);
-            }
-        };
-
-        // Original UDP source port.
-        buf.put_u16(query_port);
-
-        // Original UDP destination port. Use 53 since it doesn't matter and the dnstap message
-        // payload may not have it.
-        buf.put_u16(53);
-
-        // Add the original DNS query message after the PROXY v2 payload.
+        // Add the original DNS query message.
         buf.put_slice(query_message);
 
         // Freeze the buffer since it no longer needs to be mutated.
@@ -325,11 +309,11 @@ impl DnstapHandler {
         match timeout(DNS_QUERY_TIMEOUT, socket.recv(&mut self.recv_buf)).await {
             Ok(res) => match res {
                 Ok(n_bytes) => {
+                    // A DNS response message was successfully received.
                     crate::metrics::DNS_QUERIES
                         .with_label_values(&["success"])
                         .inc();
 
-                    // A DNS response message was successfully received.
                     let received_message = &self.recv_buf[..n_bytes];
                     trace!("Received DNS response: {}", hex::encode(received_message));
 
@@ -343,10 +327,6 @@ impl DnstapHandler {
                             .inc();
                     } else {
                         // Mismatch.
-                        crate::metrics::DNS_COMPARISONS
-                            .with_label_values(&["mismatch"])
-                            .inc();
-
                         bail!(DnstapHandlerError::Mismatch(
                             Bytes::copy_from_slice(received_message),
                             hex::encode(received_message),
@@ -362,9 +342,6 @@ impl DnstapHandler {
                 }
             },
             Err(_) => {
-                crate::metrics::DNS_QUERIES
-                    .with_label_values(&["timeout"])
-                    .inc();
                 bail!(DnstapHandlerError::Timeout);
             }
         }
@@ -386,6 +363,71 @@ impl DnstapHandler {
             }
         }
     }
+}
+
+fn add_proxy_payload(buf: &mut BytesMut, msg: &dnstap::Message) -> Result<()> {
+    // Extract the `query_address` field and convert it to an [`IpAddr`]. This is the IP
+    // address of the original client that sent the DNS query to the DNS server that logged the
+    // dnstap message.
+    let query_address = match &msg.query_address {
+        Some(addr) => try_from_u8_slice_for_ipaddr(addr)?,
+        None => bail!(DnstapHandlerError::MissingField),
+    };
+
+    // Extract the `query_port` field.
+    let query_port = match &msg.query_port {
+        Some(port) => *port as u16,
+        None => bail!(DnstapHandlerError::MissingField),
+    };
+
+    // Add the PROXY v2 signature.
+    buf.put(&b"\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A"[..]);
+
+    // Add the PROXY version (2) and command (1), PROXY.
+    buf.put_u8(0x21);
+
+    // Add the PROXY v2 address block.
+    match query_address {
+        IpAddr::V4(addr) => {
+            // UDP-over-IPv4: protocol constant 0x12.
+            buf.put_u8(0x12);
+
+            // Size of the UDP-over-IPv4 address block: 12 bytes. There are two IPv4 addresses
+            // (4 bytes each) and two UDP port numbers (2 bytes each).
+            buf.put_u16(12);
+
+            // Original IPv4 source address.
+            buf.put_slice(&addr.octets());
+
+            // Original IPv4 destination address. Use 0.0.0.0 since it doesn't matter and the
+            // dnstap message payload may not have it.
+            buf.put_u32(0);
+        }
+        IpAddr::V6(addr) => {
+            // UDP-over-IPv6: protocol constant 0x22.
+            buf.put_u8(0x22);
+
+            // Size of the UDP-over-IPv6 address block: 36 bytes. There are two IPv6 addresses
+            // (16 bytes each) and two UDP port numbers (2 bytes each).
+            buf.put_u16(36);
+
+            // Original IPv6 source address.
+            buf.put_slice(&addr.octets());
+
+            // Original IPv6 destination address. Use :: since it doesn't matter and the dnstap
+            // message payload may not have it.
+            buf.put_u128(0);
+        }
+    };
+
+    // Original UDP source port.
+    buf.put_u16(query_port);
+
+    // Original UDP destination port. Use 53 since it doesn't matter and the dnstap message
+    // payload may not have it.
+    buf.put_u16(53);
+
+    Ok(())
 }
 
 /// Utility function that converts a slice of bytes into an [`IpAddr`]. Slices of length 4 are

@@ -73,6 +73,10 @@ struct Opts {
     #[clap(long, default_value = "10")]
     num_sockets: usize,
 
+    /// Whether to add PROXY v2 header to re-sent DNS queries
+    #[clap(long)]
+    proxy: bool,
+
     /// Unix socket path to listen on
     #[clap(long, name = "PATH")]
     unix: String,
@@ -123,6 +127,7 @@ impl Server {
                 self.channel_receiver.clone(),
                 self.channel_mismatch_sender.clone(),
                 self.opts.dns,
+                self.opts.proxy,
             )
             .await?;
 
@@ -137,6 +142,9 @@ impl Server {
             "Sending DNS queries to server {} using {} UDP query sockets",
             &self.opts.dns, self.opts.num_sockets,
         );
+        if self.opts.proxy {
+            info!("Sending DNS queries with PROXY v2 header");
+        }
 
         // Bind to the configured Unix socket. Remove the socket file if it exists.
         let _ = std::fs::remove_file(&self.opts.unix);

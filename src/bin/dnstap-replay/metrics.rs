@@ -53,3 +53,12 @@ pub static DNS_QUERIES: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub static DNSTAP_PAYLOADS: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "dnstap_payloads_total",
+        "Number of dnstap payloads processed.",
+        &["result"]
+    )
+    .unwrap()
+});
