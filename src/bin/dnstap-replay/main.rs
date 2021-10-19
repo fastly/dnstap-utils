@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_channel::{bounded, Receiver, Sender};
-use clap::Clap;
+use clap::Parser;
 use log::*;
 use std::net::SocketAddr;
 use tokio::net::UnixListener;
@@ -51,7 +51,7 @@ struct Server {
 }
 
 /// Command-line arguments.
-#[derive(Clap, Clone)]
+#[derive(Parser, Clone)]
 struct Opts {
     /// Capacity of async channel for handler payload distribution
     #[clap(long, default_value = "10000")]
