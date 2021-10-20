@@ -41,13 +41,13 @@ struct Server {
     /// dnstap messages from the [`FrameHandler`]'s.
     channel_receiver: Receiver<dnstap::Dnstap>,
 
-    /// The send side of the async channel used by [`DnstapHandler`]'s to send mismatch dnstap
+    /// The send side of the async channel used by [`DnstapHandler`]'s to send error dnstap
     /// protobuf messages to the [`HttpHandler`].
-    channel_mismatch_sender: Sender<dnstap::Dnstap>,
+    channel_error_sender: Sender<dnstap::Dnstap>,
 
-    /// The receive side of the async channel used by [`DnstapHandler`]'s to send mismatch dnstap
+    /// The receive side of the async channel used by [`DnstapHandler`]'s to send error dnstap
     /// protobuf messages to the [`HttpHandler`].
-    channel_mismatch_receiver: Receiver<dnstap::Dnstap>,
+    channel_error_receiver: Receiver<dnstap::Dnstap>,
 }
 
 /// Command-line arguments.
@@ -57,9 +57,9 @@ struct Opts {
     #[clap(long, default_value = "10000")]
     channel_capacity: usize,
 
-    /// Capacity of async channel for /mismatches endpoint buffer
+    /// Capacity of async channel for /errors endpoint buffer
     #[clap(long, default_value = "100000")]
-    channel_mismatch_capacity: usize,
+    channel_error_capacity: usize,
 
     /// UDP DNS server and port to send queries to
     #[clap(long, name = "DNS IP:PORT")]
@@ -93,15 +93,15 @@ impl Server {
         let (channel_sender, channel_receiver) = bounded(opts.channel_capacity);
 
         // Create the channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
-        let (channel_mismatch_sender, channel_mismatch_receiver) =
-            bounded(opts.channel_mismatch_capacity);
+        let (channel_error_sender, channel_error_receiver) =
+            bounded(opts.channel_error_capacity);
 
         Server {
             opts: opts.clone(),
             channel_sender,
             channel_receiver,
-            channel_mismatch_sender,
-            channel_mismatch_receiver,
+            channel_error_sender,
+            channel_error_receiver,
         }
     }
 
@@ -113,7 +113,7 @@ impl Server {
     /// configured DNS server.
     async fn run(&mut self) -> Result<()> {
         // Start up the [`HttpHandler`].
-        let http_handler = HttpHandler::new(self.opts.http, self.channel_mismatch_receiver.clone());
+        let http_handler = HttpHandler::new(self.opts.http, self.channel_error_receiver.clone());
         tokio::spawn(async move {
             if let Err(err) = http_handler.run().await {
                 error!("Hyper HTTP server error: {}", err);
@@ -125,7 +125,7 @@ impl Server {
             // Create a new [`DnstapHandler`] and give it a cloned channel receiver.
             let mut dnstap_handler = DnstapHandler::new(
                 self.channel_receiver.clone(),
-                self.channel_mismatch_sender.clone(),
+                self.channel_error_sender.clone(),
                 self.opts.dns,
                 self.opts.proxy,
             )

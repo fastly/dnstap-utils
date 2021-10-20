@@ -21,29 +21,29 @@ use crate::framestreams_codec::{self, Frame, FrameStreamsCodec};
 /// Process HTTP requests.
 pub struct HttpHandler {
     http_address: SocketAddr,
-    channel_mismatch_receiver: async_channel::Receiver<dnstap::Dnstap>,
+    channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
 }
 
 impl HttpHandler {
-    /// Create a new [`HttpHandler`] that listens on `http_address`. For the `/mismatches`
-    /// endpoint, mismatched dnstap payloads will be retrieved from `channel_mismatch_receiver`.
+    /// Create a new [`HttpHandler`] that listens on `http_address`. For the `/errors`
+    /// endpoint, error dnstap payloads will be retrieved from `channel_error_receiver`.
     pub fn new(
         http_address: SocketAddr,
-        channel_mismatch_receiver: async_channel::Receiver<dnstap::Dnstap>,
+        channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
     ) -> Self {
         HttpHandler {
             http_address,
-            channel_mismatch_receiver,
+            channel_error_receiver,
         }
     }
 
     /// Run the HTTP server.
     pub async fn run(&self) -> Result<()> {
-        // Clone the mismatch channel for the outer closure.
-        let channel = self.channel_mismatch_receiver.clone();
+        // Clone the error channel for the outer closure.
+        let channel = self.channel_error_receiver.clone();
 
         let make_svc = make_service_fn(move |_| {
-            // Clone the mismatch channel again for the inner closure.
+            // Clone the error channel again for the inner closure.
             let channel = channel.clone();
 
             async move {
@@ -66,14 +66,14 @@ impl HttpHandler {
 /// Route HTTP requests based on method/path.
 pub async fn http_service(
     req: Request<Body>,
-    channel_mismatch_receiver: async_channel::Receiver<dnstap::Dnstap>,
+    channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
 ) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
         // Handle the `/metrics` endpoint.
         (&Method::GET, "/metrics") => get_metrics_response(),
 
-        // Handle the `/mismatches` endpoint.
-        (&Method::GET, "/mismatches") => get_mismatches_response(channel_mismatch_receiver),
+        // Handle the `/errors` endpoint.
+        (&Method::GET, "/errors") => get_errors_response(channel_error_receiver),
 
         // Default 404 Not Found response.
         _ => {
@@ -101,9 +101,9 @@ fn get_metrics_response() -> Result<Response<Body>> {
     Ok(response)
 }
 
-/// Handle requests for the mismatches endpoint, which returns a Frame Streams formatted log file
-/// of the mismatched dnstap payloads.
-fn get_mismatches_response(
+/// Handle requests for the errors endpoint, which returns a Frame Streams formatted log file
+/// of the error dnstap payloads.
+fn get_errors_response(
     channel: async_channel::Receiver<dnstap::Dnstap>,
 ) -> Result<Response<Body>> {
     Ok(Response::new(Body::wrap_stream(dnstap_receiver_to_stream(
@@ -134,7 +134,7 @@ fn dnstap_receiver_to_stream(
             match channel.try_recv() {
                 Ok(d) => {
                     // Accounting.
-                    crate::metrics::CHANNEL_MISMATCH_RX
+                    crate::metrics::CHANNEL_ERROR_RX
                         .with_label_values(&["success"])
                         .inc();
 

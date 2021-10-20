@@ -9,8 +9,8 @@ Rust programming language.
 messages from one or more DNS nameservers and replays them against a
 target nameserver.  The responses from the target nameserver are
 compared against the originally logged response messages and any
-***mismatches*** are made available in dnstap format via an HTTP
-endpoint for later analysis.
+***mismatches*** or other errors are made available in dnstap format
+via an HTTP endpoint for later analysis.
 
 ### `dnstap-replay`: dnstap message requirements
 
@@ -92,11 +92,11 @@ When `dnstap-replay` sends a DNS query to the target nameserver and the
 response from the target nameserver does not exactly match the
 originally logged response message, a log message containing the
 mismatched response message is generated and buffered and can be
-retrieved from the `/mismatches` HTTP endpoint. This endpoint drains the
-mismatch buffer and provides the output in Frame Streams format
-containing dnstap payloads.
+retrieved from the `/errors` HTTP endpoint. This endpoint drains the
+error buffer and provides the output in Frame Streams format containing
+dnstap payloads.
 
-The dnstap log messages exported via the `/mismatches` endpoint are the
+The dnstap log messages exported via the `/errors` endpoint are the
 originally logged dnstap messages received by `dnstap-replay`, with the
 dnstap [`extra`
 field](https://github.com/dnstap/dnstap.pb/blob/9bafb5b59dacc48a6ff6a839e419e540f1201c42/dnstap.proto#L37-L40)
@@ -123,7 +123,7 @@ The `--unix` argument specifies the filesystem path to bind the dnstap
 Unix socket to.
 
 Additionally, there are command-line options `--channel-capacity` and
-`--channel-mismatch-capacity` which allow tuning of internal buffer
+`--channel-error-capacity` which allow tuning of internal buffer
 sizes.
 
 For example, the following command-line invocation will listen on the
@@ -140,8 +140,8 @@ be sent to the target nameserver which should be configured to listen on
 The Prometheus metrics endpoint can be accessed at
 `http://127.0.0.1:53080/metrics`.
 
-The Frame Streams mismatches endpoint can be accessed at
-`http://127.0.0.1:53080/mismatches`.
+The Frame Streams errors endpoint can be accessed at
+`http://127.0.0.1:53080/errors`.
 
 ## License
 

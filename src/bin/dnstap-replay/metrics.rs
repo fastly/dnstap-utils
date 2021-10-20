@@ -2,19 +2,19 @@ use once_cell::sync::Lazy;
 use prometheus::{opts, register_int_counter, register_int_counter_vec};
 use prometheus::{IntCounter, IntCounterVec};
 
-pub static CHANNEL_MISMATCH_RX: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static CHANNEL_ERROR_RX: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
-        "channel_mismatch_rx_total",
-        "Number of channel mismatch receives performed.",
+        "channel_error_rx_total",
+        "Number of error channel receives performed.",
         &["result"]
     )
     .unwrap()
 });
 
-pub static CHANNEL_MISMATCH_TX: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static CHANNEL_ERROR_TX: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
-        "channel_mismatch_tx_total",
-        "Number of channel mismatch sends performed.",
+        "channel_error_tx_total",
+        "Number of error channel sends performed.",
         &["result"]
     )
     .unwrap()
