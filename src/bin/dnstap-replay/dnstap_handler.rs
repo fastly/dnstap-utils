@@ -52,6 +52,9 @@ pub struct DnstapHandler {
     /// Whether to add PROXY v2 header to re-sent DNS queries.
     proxy: bool,
 
+    /// The DSCP value to use for re-sent DNS queries.
+    dscp: Option<u8>,
+
     /// Per-handler DNS client socket to use to send DNS queries to the DNS server under test. This
     /// is an [`Option<UdpSocket>`] rather than a [`UdpSocket`] because in the case of a timeout
     /// the socket will need to be closed and reopened.
@@ -112,12 +115,14 @@ impl DnstapHandler {
         channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
         dns_address: SocketAddr,
         proxy: bool,
+        dscp: Option<u8>,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
             channel_receiver,
             channel_error_sender,
             dns_address,
             proxy,
+            dscp,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
         };
@@ -141,6 +146,11 @@ impl DnstapHandler {
 
             // Bind the socket.
             let socket = UdpSocket::bind(local_address).await?;
+
+            // Set the DSCP value.
+            if let Some(dscp) = self.dscp {
+                set_udp_dscp(&socket, dscp)?;
+            }
 
             // Connect the socket to the DNS server under test.
             socket.connect(&self.dns_address).await?;
@@ -442,4 +452,49 @@ fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Result<IpAddr> {
             value.len()
         ),
     }
+}
+
+/// Utility function that sets the DSCP value on a UDP socket.
+#[cfg(unix)]
+fn set_udp_dscp(s: &UdpSocket, dscp: u8) -> Result<()> {
+    use std::os::unix::io::AsRawFd;
+
+    let raw_fd = s.as_raw_fd();
+    let optval: libc::c_int = dscp.into();
+
+    let ret = match s.local_addr()? {
+        SocketAddr::V4(_) => unsafe {
+            libc::setsockopt(
+                raw_fd,
+                libc::IPPROTO_IP,
+                libc::IP_TOS,
+                &optval as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&optval) as libc::socklen_t,
+            )
+        },
+        SocketAddr::V6(_) => unsafe {
+            libc::setsockopt(
+                raw_fd,
+                libc::IPPROTO_IPV6,
+                libc::IPV6_TCLASS,
+                &optval as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&optval) as libc::socklen_t,
+            )
+        },
+    };
+
+    match ret {
+        0 => Ok(()),
+        _ => bail!(
+            "Failed to set DSCP value {} on socket fd {}: {}",
+            dscp,
+            raw_fd,
+            std::io::Error::last_os_error()
+        ),
+    }
+}
+
+#[cfg(not(unix))]
+fn set_udp_dscp(_s: &UdpSocket, _dscp: u8) -> Result<()> {
+    bail!("Cannot set DSCP values on this platform");
 }

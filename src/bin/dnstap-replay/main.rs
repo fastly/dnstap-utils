@@ -65,6 +65,10 @@ struct Opts {
     #[clap(long, name = "DNS IP:PORT")]
     dns: SocketAddr,
 
+    /// DSCP value to set on outgoing queries
+    #[clap(long, name = "DSCP code point", validator = is_dscp)]
+    dscp: Option<u8>,
+
     /// HTTP server socket to listen on for stats and reporting
     #[clap(long, name = "HTTP IP:PORT")]
     http: SocketAddr,
@@ -86,6 +90,21 @@ struct Opts {
     verbose: usize,
 }
 
+#[cfg(unix)]
+fn is_dscp(val: &str) -> Result<(), String> {
+    // Parse 'val' as an integer, but only allow values between 0 and 63 inclusive since the DSCP
+    // field is a 6-bit quantity.
+    match val.parse() {
+        Ok(0..=63) => Ok(()),
+        _ => Err(String::from("DSCP code point must be in the range [0..63]")),
+    }
+}
+
+#[cfg(not(unix))]
+fn is_dscp(_val: &str) -> Result<(), String> {
+    Err(String::from("Cannot set DSCP values on this platform"))
+}
+
 impl Server {
     /// Create a new [`Server`] and prepare its state.
     pub fn new(opts: &Opts) -> Self {
@@ -93,8 +112,7 @@ impl Server {
         let (channel_sender, channel_receiver) = bounded(opts.channel_capacity);
 
         // Create the channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
-        let (channel_error_sender, channel_error_receiver) =
-            bounded(opts.channel_error_capacity);
+        let (channel_error_sender, channel_error_receiver) = bounded(opts.channel_error_capacity);
 
         Server {
             opts: opts.clone(),
@@ -128,6 +146,7 @@ impl Server {
                 self.channel_error_sender.clone(),
                 self.opts.dns,
                 self.opts.proxy,
+                self.opts.dscp,
             )
             .await?;
 
@@ -144,6 +163,9 @@ impl Server {
         );
         if self.opts.proxy {
             info!("Sending DNS queries with PROXY v2 header");
+        }
+        if let Some(dscp) = self.opts.dscp {
+            info!("Sending DNS queries with DSCP value {}", dscp);
         }
 
         // Bind to the configured Unix socket. Remove the socket file if it exists.
