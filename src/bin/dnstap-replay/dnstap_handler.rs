@@ -53,7 +53,7 @@ pub struct DnstapHandler {
     proxy: bool,
 
     /// The DSCP value to use for re-sent DNS queries.
-    dscp: u8,
+    dscp: Option<u8>,
 
     /// Per-handler DNS client socket to use to send DNS queries to the DNS server under test. This
     /// is an [`Option<UdpSocket>`] rather than a [`UdpSocket`] because in the case of a timeout
@@ -115,7 +115,7 @@ impl DnstapHandler {
         channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
         dns_address: SocketAddr,
         proxy: bool,
-        dscp: u8,
+        dscp: Option<u8>,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
             channel_receiver,
@@ -148,7 +148,9 @@ impl DnstapHandler {
             let socket = UdpSocket::bind(local_address).await?;
 
             // Set the DSCP value.
-            set_udp_dscp(&socket, self.dscp)?;
+            if let Some(dscp) = self.dscp {
+                set_udp_dscp(&socket, dscp)?;
+            }
 
             // Connect the socket to the DNS server under test.
             socket.connect(&self.dns_address).await?;
@@ -457,10 +459,6 @@ fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Result<IpAddr> {
 fn set_udp_dscp(s: &UdpSocket, dscp: u8) -> Result<()> {
     use std::os::unix::io::AsRawFd;
 
-    if dscp == 0 {
-        return Ok(());
-    }
-
     let raw_fd = s.as_raw_fd();
     let optval: libc::c_int = dscp.into();
 
@@ -497,9 +495,6 @@ fn set_udp_dscp(s: &UdpSocket, dscp: u8) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-fn set_udp_dscp(s: &UdpSocket, dscp: u8) -> Result<()> {
-    if dscp > 0 {
-        warn!("Cannot set DSCP values on this platform");
-    }
-    Ok(())
+fn set_udp_dscp(_s: &UdpSocket, _dscp: u8) -> Result<()> {
+    bail!("Cannot set DSCP values on this platform");
 }

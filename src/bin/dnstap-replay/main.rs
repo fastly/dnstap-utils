@@ -66,8 +66,8 @@ struct Opts {
     dns: SocketAddr,
 
     /// DSCP value to set on outgoing queries
-    #[clap(long, name = "DSCP code point", default_value = "0", validator = is_dscp)]
-    dscp: u8,
+    #[clap(long, name = "DSCP code point", validator = is_dscp)]
+    dscp: Option<u8>,
 
     /// HTTP server socket to listen on for stats and reporting
     #[clap(long, name = "HTTP IP:PORT")]
@@ -164,8 +164,8 @@ impl Server {
         if self.opts.proxy {
             info!("Sending DNS queries with PROXY v2 header");
         }
-        if self.opts.dscp > 0 {
-            info!("Sending DNS queries with DSCP value {}", self.opts.dscp);
+        if let Some(dscp) = self.opts.dscp {
+            info!("Sending DNS queries with DSCP value {}", dscp);
         }
 
         // Bind to the configured Unix socket. Remove the socket file if it exists.
