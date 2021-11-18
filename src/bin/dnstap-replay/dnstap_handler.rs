@@ -76,6 +76,12 @@ enum DnstapHandlerError {
     MissingField,
 }
 
+#[derive(Error, Debug)]
+enum DnstapHandlerInternalError {
+    #[error("Non-UDP dnstap payload was discarded")]
+    DiscardNonUdp,
+}
+
 impl DnstapHandlerError {
     pub fn serialize(&self) -> Bytes {
         let prefix = b"dnstap-replay/DnstapHandlerError\x00";
@@ -263,6 +269,14 @@ impl DnstapHandler {
                             // Already handled by metric increment above.
                         }
                     }
+                } else if let Some(e) = e.downcast_ref::<DnstapHandlerInternalError>() {
+                    match e {
+                        DnstapHandlerInternalError::DiscardNonUdp => {
+                            crate::metrics::DNSTAP_HANDLER_INTERNAL_ERRORS
+                                .with_label_values(&["discard_non_udp"])
+                                .inc();
+                        }
+                    }
                 }
             }
         }
@@ -278,6 +292,19 @@ impl DnstapHandler {
             None => {
                 bail!("No connected socket to send DNS queries");
             }
+        };
+
+        // Check if the original DNS query message was sent over UDP. If not, when the query is
+        // re-sent over UDP it may elicit different behavior compared to the original transport.
+        match &msg.socket_protocol {
+            Some(socket_protocol) => {
+                if dnstap::SocketProtocol::from_i32(*socket_protocol)
+                    != Some(dnstap::SocketProtocol::Udp)
+                {
+                    bail!(DnstapHandlerInternalError::DiscardNonUdp);
+                }
+            }
+            None => bail!(DnstapHandlerError::MissingField),
         };
 
         // Extract the `query_message` field. This is the original DNS query message sent to the
