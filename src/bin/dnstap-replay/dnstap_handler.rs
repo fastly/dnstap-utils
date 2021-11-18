@@ -76,6 +76,12 @@ enum DnstapHandlerError {
     MissingField,
 }
 
+#[derive(Error, Debug)]
+enum DnstapHandlerInternalError {
+    #[error("Non-UDP dnstap payload was discarded")]
+    DiscardNonUdp,
+}
+
 impl DnstapHandlerError {
     pub fn serialize(&self) -> Bytes {
         let prefix = b"dnstap-replay/DnstapHandlerError\x00";
@@ -263,6 +269,14 @@ impl DnstapHandler {
                             // Already handled by metric increment above.
                         }
                     }
+                } else if let Some(e) = e.downcast_ref::<DnstapHandlerInternalError>() {
+                    match e {
+                        DnstapHandlerInternalError::DiscardNonUdp => {
+                            crate::metrics::DNSTAP_HANDLER_INTERNAL_ERRORS
+                                .with_label_values(&["discard_non_udp"])
+                                .inc();
+                        }
+                    }
                 }
             }
         }
@@ -287,7 +301,7 @@ impl DnstapHandler {
                 if dnstap::SocketProtocol::from_i32(*socket_protocol)
                     != Some(dnstap::SocketProtocol::Udp)
                 {
-                    bail!("Discarding non-UDP query");
+                    bail!(DnstapHandlerInternalError::DiscardNonUdp);
                 }
             }
             None => bail!(DnstapHandlerError::MissingField),

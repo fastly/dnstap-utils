@@ -62,3 +62,12 @@ pub static DNSTAP_PAYLOADS: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub static DNSTAP_HANDLER_INTERNAL_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "dnstap_handler_internal_errors_total",
+        "Number of internal errors encountered by dnstap handler.",
+        &["result"]
+    )
+    .unwrap()
+});
