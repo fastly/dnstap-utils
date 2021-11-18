@@ -280,6 +280,19 @@ impl DnstapHandler {
             }
         };
 
+        // Check if the original DNS query message was sent over UDP. If not, when the query is
+        // re-sent over UDP it may elicit different behavior compared to the original transport.
+        match &msg.socket_protocol {
+            Some(socket_protocol) => {
+                if dnstap::SocketProtocol::from_i32(*socket_protocol)
+                    != Some(dnstap::SocketProtocol::Udp)
+                {
+                    bail!("Discarding non-UDP query");
+                }
+            }
+            None => bail!(DnstapHandlerError::MissingField),
+        };
+
         // Extract the `query_message` field. This is the original DNS query message sent to the
         // DNS server that logged the dnstap message.
         let query_message = match &msg.query_message {
