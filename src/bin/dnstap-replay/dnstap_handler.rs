@@ -3,7 +3,6 @@
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
-use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use thiserror::Error;
@@ -11,6 +10,7 @@ use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
 use dnstap_utils::dnstap;
+use dnstap_utils::util::try_from_u8_slice_for_ipaddr;
 
 /// Duration for [`DnstapHandler`]'s to wait for a response from the DNS server under test.
 const DNS_QUERY_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -465,20 +465,6 @@ fn add_proxy_payload(buf: &mut BytesMut, msg: &dnstap::Message) -> Result<()> {
     buf.put_u16(53);
 
     Ok(())
-}
-
-/// Utility function that converts a slice of bytes into an [`IpAddr`]. Slices of length 4 are
-/// converted to IPv4 addresses and slices of length 16 are converted to IPv6 addresses. All other
-/// slice lengths are invalid. This is how IP addresses are encoded in dnstap protobuf messages.
-fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Result<IpAddr> {
-    match value.len() {
-        4 => Ok(IpAddr::from(<[u8; 4]>::try_from(value)?)),
-        16 => Ok(IpAddr::from(<[u8; 16]>::try_from(value)?)),
-        _ => bail!(
-            "Cannot decode an IP address from a {} byte field",
-            value.len()
-        ),
-    }
 }
 
 /// Utility function that sets the DSCP value on a UDP socket.
