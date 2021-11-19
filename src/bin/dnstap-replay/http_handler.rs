@@ -15,8 +15,8 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio_util::codec::Encoder as CodecEncoder;
 
-use crate::dnstap;
-use crate::framestreams_codec::{self, Frame, FrameStreamsCodec};
+use dnstap_utils::dnstap;
+use dnstap_utils::framestreams_codec::{self, Frame, FrameStreamsCodec};
 
 /// Process HTTP requests.
 pub struct HttpHandler {

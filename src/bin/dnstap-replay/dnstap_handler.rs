@@ -10,7 +10,7 @@ use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use crate::dnstap;
+use dnstap_utils::dnstap;
 
 /// Duration for [`DnstapHandler`]'s to wait for a response from the DNS server under test.
 const DNS_QUERY_TIMEOUT: Duration = Duration::from_millis(5000);
