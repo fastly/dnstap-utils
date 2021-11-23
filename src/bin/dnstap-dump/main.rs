@@ -118,6 +118,13 @@ fn fmt_dnstap(s: &mut String, d: dnstap::Dnstap) {
 
         s.push_str("  type: ");
 
+        // Attempt to deserialize the dnstap payload's 'extra' field as if it were a serialized
+        // DnstapHandler error. The 'extra' field in dnstap payloads "can be used for adding an
+        // arbitrary byte-string annotation to the payload. No encoding or interpretation is
+        // applied or enforced.", according to the dnstap protobuf definition.
+        //
+        // The custom serialization of DnstapHandler errors has a unique prefix which allows them
+        // to be distinguished from other uses of the 'extra' field.
         match deserialize_dnstap_handler_error(extra) {
             Ok(dhe) => match dhe {
                 DnstapHandlerError::Mismatch(mismatch_dns_bytes, _, _) => {
