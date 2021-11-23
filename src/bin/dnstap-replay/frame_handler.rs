@@ -11,8 +11,8 @@ use tokio::net::UnixStream;
 use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
 
-use crate::dnstap;
-use crate::framestreams_codec::{self, Frame, FrameStreamsCodec};
+use dnstap_utils::dnstap;
+use dnstap_utils::framestreams_codec::{self, Frame, FrameStreamsCodec};
 
 /// Per-connection FrameStreams protocol handler. Reads delimited frames from the Unix socket
 /// stream, decodes the protobuf payload, and then sends the protobuf object over a channel to a

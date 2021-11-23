@@ -3,14 +3,15 @@
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
-use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use crate::dnstap;
+use dnstap_utils::dnstap;
+use dnstap_utils::util::try_from_u8_slice_for_ipaddr;
+use dnstap_utils::util::DnstapHandlerError;
 
 /// Duration for [`DnstapHandler`]'s to wait for a response from the DNS server under test.
 const DNS_QUERY_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -65,49 +66,9 @@ pub struct DnstapHandler {
 }
 
 #[derive(Error, Debug)]
-enum DnstapHandlerError {
-    #[error("Mismatch between logged dnstap response and re-queried DNS response, expecting {1} but received {2}")]
-    Mismatch(Bytes, String, String),
-
-    #[error("Timeout sending DNS query")]
-    Timeout,
-
-    #[error("dnstap payload is missing a required field")]
-    MissingField,
-}
-
-#[derive(Error, Debug)]
 enum DnstapHandlerInternalError {
     #[error("Non-UDP dnstap payload was discarded")]
     DiscardNonUdp,
-}
-
-impl DnstapHandlerError {
-    pub fn serialize(&self) -> Bytes {
-        let prefix = b"dnstap-replay/DnstapHandlerError\x00";
-        match self {
-            DnstapHandlerError::Mismatch(mismatch, _, _) => {
-                let mut b = BytesMut::with_capacity(prefix.len() + 4 + mismatch.len());
-                b.extend_from_slice(prefix);
-                b.put_u32(1);
-                b.extend_from_slice(mismatch);
-                b
-            }
-            DnstapHandlerError::Timeout => {
-                let mut b = BytesMut::with_capacity(prefix.len() + 4);
-                b.extend_from_slice(prefix);
-                b.put_u32(2);
-                b
-            }
-            DnstapHandlerError::MissingField => {
-                let mut b = BytesMut::with_capacity(prefix.len() + 4);
-                b.extend_from_slice(prefix);
-                b.put_u32(3);
-                b
-            }
-        }
-        .freeze()
-    }
 }
 
 impl DnstapHandler {
@@ -465,20 +426,6 @@ fn add_proxy_payload(buf: &mut BytesMut, msg: &dnstap::Message) -> Result<()> {
     buf.put_u16(53);
 
     Ok(())
-}
-
-/// Utility function that converts a slice of bytes into an [`IpAddr`]. Slices of length 4 are
-/// converted to IPv4 addresses and slices of length 16 are converted to IPv6 addresses. All other
-/// slice lengths are invalid. This is how IP addresses are encoded in dnstap protobuf messages.
-fn try_from_u8_slice_for_ipaddr(value: &[u8]) -> Result<IpAddr> {
-    match value.len() {
-        4 => Ok(IpAddr::from(<[u8; 4]>::try_from(value)?)),
-        16 => Ok(IpAddr::from(<[u8; 16]>::try_from(value)?)),
-        _ => bail!(
-            "Cannot decode an IP address from a {} byte field",
-            value.len()
-        ),
-    }
 }
 
 /// Utility function that sets the DSCP value on a UDP socket.

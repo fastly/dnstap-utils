@@ -22,9 +22,6 @@ use frame_handler::*;
 mod http_handler;
 use http_handler::*;
 
-/// The codec for handshaking and decoding the "Frame Streams" protocol used by dnstap.
-use dnstap_utils::framestreams_codec;
-
 /// The generated protobuf definitions for the dnstap protocol.
 use dnstap_utils::dnstap;
 
