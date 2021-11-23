@@ -240,7 +240,7 @@ fn fmt_dnstap_message(s: &mut String, msg: &dnstap::Message) {
 fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
     use domain::base::iana::rtype::Rtype;
     use domain::base::Message;
-    use domain::rdata::MasterRecordData;
+    use domain::rdata::AllRecordData;
 
     let msg = match Message::from_octets(raw_msg_bytes) {
         Ok(msg) => msg,
@@ -323,7 +323,7 @@ fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
 
         s.push_str(prefix);
         s.push_str(";; ANSWER SECTION:\n");
-        for record in sections.1.limit_to::<MasterRecordData<_, _>>().flatten() {
+        for record in sections.1.limit_to::<AllRecordData<_, _>>().flatten() {
             s.push_str(prefix);
             s.push_str(&record.to_string());
             s.push('\n')
@@ -332,7 +332,7 @@ fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
 
         s.push_str(prefix);
         s.push_str(";; AUTHORITY SECTION:\n");
-        for record in sections.2.limit_to::<MasterRecordData<_, _>>().flatten() {
+        for record in sections.2.limit_to::<AllRecordData<_, _>>().flatten() {
             s.push_str(prefix);
             s.push_str(&record.to_string());
             s.push('\n')
@@ -341,7 +341,7 @@ fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
 
         s.push_str(prefix);
         s.push_str(";; ADDITIONAL SECTION:\n");
-        for record in sections.3.limit_to::<MasterRecordData<_, _>>().flatten() {
+        for record in sections.3.limit_to::<AllRecordData<_, _>>().flatten() {
             if record.rtype() == Rtype::Opt {
                 continue;
             }
