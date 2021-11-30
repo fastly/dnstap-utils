@@ -127,3 +127,132 @@ fn test_deserialize_dnstap_handler_error() {
         DnstapHandlerError::MissingField
     );
 }
+
+pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
+    use domain::base::iana::rtype::Rtype;
+    use domain::base::Message;
+    use domain::rdata::AllRecordData;
+
+    let msg = match Message::from_octets(raw_msg_bytes) {
+        Ok(msg) => msg,
+        Err(err) => {
+            s.push_str(prefix);
+            s.push_str(";; PARSE ERROR: ");
+            s.push_str(&err.to_string());
+            s.push('\n');
+            return;
+        }
+    };
+
+    let hdr = msg.header();
+
+    // opcode
+    s.push_str(prefix);
+    s.push_str(";; ->>HEADER<<- opcode: ");
+    s.push_str(&hdr.opcode().to_string());
+
+    // rcode
+    s.push_str(", rcode: ");
+    s.push_str(&hdr.rcode().to_string());
+
+    // id
+    s.push_str(", id: ");
+    s.push_str(&hdr.id().to_string());
+    s.push('\n');
+
+    // flags
+    s.push_str(prefix);
+    s.push_str(";; flags: ");
+    if hdr.qr() {
+        s.push_str("qr ");
+    }
+    if hdr.aa() {
+        s.push_str("aa ");
+    }
+    if hdr.tc() {
+        s.push_str("tc ");
+    }
+    if hdr.rd() {
+        s.push_str("rd ");
+    }
+    if hdr.ra() {
+        s.push_str("ra ");
+    }
+    if hdr.ad() {
+        s.push_str("ad ");
+    }
+    if hdr.cd() {
+        s.push_str("cd ");
+    }
+
+    // header counts
+    let hdr_counts = msg.header_counts();
+    s.push_str("; QUERY: ");
+    s.push_str(&hdr_counts.qdcount().to_string());
+    s.push_str(", ANSWER: ");
+    s.push_str(&hdr_counts.ancount().to_string());
+    s.push_str(", AUTHORITY: ");
+    s.push_str(&hdr_counts.nscount().to_string());
+    s.push_str(", ADDITIONAL: ");
+    s.push_str(&hdr_counts.adcount().to_string());
+    s.push_str("\n\n");
+
+    if let Ok(sections) = msg.sections() {
+        s.push_str(prefix);
+        s.push_str(";; QUESTION SECTION:\n");
+        for question in sections.0.flatten() {
+            s.push_str(prefix);
+            s.push(';');
+            s.push_str(&question.qname().to_string());
+            s.push_str(". ");
+            s.push_str(&question.qclass().to_string());
+            s.push(' ');
+            s.push_str(&question.qtype().to_string());
+            s.push('\n')
+        }
+        s.push('\n');
+
+        s.push_str(prefix);
+        s.push_str(";; ANSWER SECTION:\n");
+        for record in sections.1.limit_to::<AllRecordData<_, _>>().flatten() {
+            s.push_str(prefix);
+            s.push_str(&record.to_string());
+            s.push('\n')
+        }
+        s.push('\n');
+
+        s.push_str(prefix);
+        s.push_str(";; AUTHORITY SECTION:\n");
+        for record in sections.2.limit_to::<AllRecordData<_, _>>().flatten() {
+            s.push_str(prefix);
+            s.push_str(&record.to_string());
+            s.push('\n')
+        }
+        s.push('\n');
+
+        s.push_str(prefix);
+        s.push_str(";; ADDITIONAL SECTION:\n");
+        for record in sections.3.limit_to::<AllRecordData<_, _>>().flatten() {
+            if record.rtype() == Rtype::Opt {
+                continue;
+            }
+            s.push_str(prefix);
+            s.push_str(&record.to_string());
+            s.push('\n')
+        }
+
+        if let Some(opt) = msg.opt() {
+            s.push('\n');
+            s.push_str(prefix);
+            s.push_str(";; EDNS: version ");
+            s.push_str(&opt.version().to_string());
+            s.push_str("; flags: ");
+            if opt.dnssec_ok() {
+                s.push_str("do ");
+            }
+            s.push_str("; udp: ");
+            s.push_str(&opt.udp_payload_size().to_string());
+            s.push('\n');
+        }
+    }
+}
