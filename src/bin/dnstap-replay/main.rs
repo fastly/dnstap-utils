@@ -201,6 +201,8 @@ fn main() -> Result<()> {
         .init()
         .unwrap();
 
+    metrics::initialize_metrics();
+
     let mut server = Server::new(&opts);
 
     // Start the Tokio runtime.
