@@ -350,11 +350,15 @@ impl DnstapHandler {
     fn send_error(&self, d: dnstap::Dnstap) {
         match self.channel_error_sender.try_send(d) {
             Ok(_) => {
+                crate::metrics::CHANNEL_ERROR_RX
+                    .with_label_values(&["success"]);
                 crate::metrics::CHANNEL_ERROR_TX
                     .with_label_values(&["success"])
                     .inc();
             }
             Err(_) => {
+                crate::metrics::CHANNEL_ERROR_RX
+                    .with_label_values(&["success"]);
                 crate::metrics::CHANNEL_ERROR_TX
                     .with_label_values(&["error"])
                     .inc();
