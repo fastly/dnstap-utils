@@ -177,14 +177,10 @@ impl DnstapHandler {
         // reopen the UDP client socket.
         match self.process_dnstap_message(msg).await {
             Ok(_) => {
-                crate::metrics::DNSTAP_PAYLOADS
-                    .with_label_values(&["success"])
-                    .inc();
+                crate::metrics::DNSTAP_PAYLOADS.success.inc();
             }
             Err(e) => {
-                crate::metrics::DNSTAP_PAYLOADS
-                    .with_label_values(&["error"])
-                    .inc();
+                crate::metrics::DNSTAP_PAYLOADS.error.inc();
 
                 if let Some(e) = e.downcast_ref::<DnstapHandlerError>() {
                     // Serialize the [`DnstapHandlerError`] instance and export it via the dnstap
@@ -197,15 +193,11 @@ impl DnstapHandler {
 
                     match e {
                         DnstapHandlerError::Mismatch(_, _, _) => {
-                            crate::metrics::DNS_COMPARISONS
-                                .with_label_values(&["mismatch"])
-                                .inc();
+                            crate::metrics::DNS_COMPARISONS.mismatched.inc();
                         }
 
                         DnstapHandlerError::Timeout => {
-                            crate::metrics::DNS_QUERIES
-                                .with_label_values(&["timeout"])
-                                .inc();
+                            crate::metrics::DNS_QUERIES.timeout.inc();
 
                             // In the case of a DNS query timeout, we can't tell the difference
                             // between a message that has genuinely been lost and one that might
@@ -233,9 +225,7 @@ impl DnstapHandler {
                 } else if let Some(e) = e.downcast_ref::<DnstapHandlerInternalError>() {
                     match e {
                         DnstapHandlerInternalError::DiscardNonUdp => {
-                            crate::metrics::DNSTAP_HANDLER_INTERNAL_ERRORS
-                                .with_label_values(&["discard_non_udp"])
-                                .inc();
+                            crate::metrics::DNSTAP_HANDLER_INTERNAL_ERRORS.discard_non_udp.inc();
                         }
                     }
                 }
@@ -308,9 +298,7 @@ impl DnstapHandler {
             Ok(res) => match res {
                 Ok(n_bytes) => {
                     // A DNS response message was successfully received.
-                    crate::metrics::DNS_QUERIES
-                        .with_label_values(&["success"])
-                        .inc();
+                    crate::metrics::DNS_QUERIES.success.inc();
 
                     let received_message = &self.recv_buf[..n_bytes];
                     trace!("Received DNS response: {}", hex::encode(received_message));
@@ -320,9 +308,7 @@ impl DnstapHandler {
                     // message.
                     if response_message == received_message {
                         // Match.
-                        crate::metrics::DNS_COMPARISONS
-                            .with_label_values(&["match"])
-                            .inc();
+                        crate::metrics::DNS_COMPARISONS.matched.inc();
                     } else {
                         // Mismatch.
                         bail!(DnstapHandlerError::Mismatch(
@@ -333,9 +319,7 @@ impl DnstapHandler {
                     }
                 }
                 Err(e) => {
-                    crate::metrics::DNS_QUERIES
-                        .with_label_values(&["error"])
-                        .inc();
+                    crate::metrics::DNS_QUERIES.error.inc();
                     bail!(e);
                 }
             },
@@ -350,14 +334,10 @@ impl DnstapHandler {
     fn send_error(&self, d: dnstap::Dnstap) {
         match self.channel_error_sender.try_send(d) {
             Ok(_) => {
-                crate::metrics::CHANNEL_ERROR_TX
-                    .with_label_values(&["success"])
-                    .inc();
+                crate::metrics::CHANNEL_ERROR_TX.success.inc();
             }
             Err(_) => {
-                crate::metrics::CHANNEL_ERROR_TX
-                    .with_label_values(&["error"])
-                    .inc();
+                crate::metrics::CHANNEL_ERROR_TX.error.inc();
             }
         }
     }

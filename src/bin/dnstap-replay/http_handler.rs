@@ -134,9 +134,7 @@ fn dnstap_receiver_to_stream(
             match channel.try_recv() {
                 Ok(d) => {
                     // Accounting.
-                    crate::metrics::CHANNEL_ERROR_RX
-                        .with_label_values(&["success"])
-                        .inc();
+                    crate::metrics::CHANNEL_ERROR_RX.success.inc();
 
                     // Get the length of the serialized protobuf.
                     let len = d.encoded_len();
