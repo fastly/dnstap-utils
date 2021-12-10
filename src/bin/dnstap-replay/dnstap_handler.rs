@@ -4,6 +4,8 @@ use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
 use log::*;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::net::UdpSocket;
@@ -39,6 +41,10 @@ const DNS_RESPONSE_BUFFER_SIZE: usize = 4096;
 ///    prepended DNS queries that the [`DnstapHandler`] sends and will likely respond with the DNS
 ///    `FORMERR` or `NOTIMP` RCODEs.
 pub struct DnstapHandler {
+    /// The result of the status monitor check. Controls whether mismatches should be emitted into
+    /// the errors channel (if true) or suppressed (if false).
+    match_status: Arc<AtomicBool>,
+
     /// The receive side of the async channel used by [`DnstapHandler`]'s to receive decoded
     /// dnstap messages from the [`crate::FrameHandler`]'s.
     channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
@@ -78,6 +84,7 @@ impl DnstapHandler {
     /// server under test that don't match the original response in the dnstap payload will be sent
     /// using `channel_error_sender`.
     pub async fn new(
+        match_status: Arc<AtomicBool>,
         channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
         channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
         dns_address: SocketAddr,
@@ -85,6 +92,7 @@ impl DnstapHandler {
         dscp: Option<u8>,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
+            match_status,
             channel_receiver,
             channel_error_sender,
             dns_address,
@@ -225,7 +233,9 @@ impl DnstapHandler {
                 } else if let Some(e) = e.downcast_ref::<DnstapHandlerInternalError>() {
                     match e {
                         DnstapHandlerInternalError::DiscardNonUdp => {
-                            crate::metrics::DNSTAP_HANDLER_INTERNAL_ERRORS.discard_non_udp.inc();
+                            crate::metrics::DNSTAP_HANDLER_INTERNAL_ERRORS
+                                .discard_non_udp
+                                .inc();
                         }
                     }
                 }
@@ -303,19 +313,24 @@ impl DnstapHandler {
                     let received_message = &self.recv_buf[..n_bytes];
                     trace!("Received DNS response: {}", hex::encode(received_message));
 
-                    // Check if the DNS response message received from the DNS server under test is
-                    // identical to the original DNS response message recorded in the dnstap
-                    // message.
-                    if response_message == received_message {
-                        // Match.
-                        crate::metrics::DNS_COMPARISONS.matched.inc();
+                    // Check if matching is enabled.
+                    if self.match_status.load(Ordering::Relaxed) {
+                        // Check if the DNS response message received from the DNS server under test is
+                        // identical to the original DNS response message recorded in the dnstap
+                        // message.
+                        if response_message == received_message {
+                            // Match.
+                            crate::metrics::DNS_COMPARISONS.matched.inc();
+                        } else {
+                            // Mismatch.
+                            bail!(DnstapHandlerError::Mismatch(
+                                Bytes::copy_from_slice(received_message),
+                                hex::encode(received_message),
+                                hex::encode(response_message),
+                            ));
+                        }
                     } else {
-                        // Mismatch.
-                        bail!(DnstapHandlerError::Mismatch(
-                            Bytes::copy_from_slice(received_message),
-                            hex::encode(received_message),
-                            hex::encode(response_message),
-                        ));
+                        crate::metrics::DNS_COMPARISONS.suppressed.inc();
                     }
                 }
                 Err(e) => {

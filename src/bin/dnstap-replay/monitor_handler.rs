@@ -7,6 +7,8 @@ use log::*;
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Monitor status files for changes and detect when all status files are identical.
 pub struct MonitorHandler {
@@ -33,13 +35,16 @@ impl MonitorHandler {
     }
 
     /// Perform status file monitoring.
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self, status: Arc<AtomicBool>) -> Result<()> {
         let mut buffer = [0; 1024];
         let mut stream = self.inotify.event_stream(&mut buffer)?;
 
         // Perform an initial check of the current status files, if any. Since inotify is
         // event-driven, events won't be received for pre-existing status files.
-        self.check();
+        let res = self.check();
+
+        // Update the match status flag.
+        status.store(res, Ordering::Relaxed);
 
         while let Some(event_or_error) = stream.next().await {
             match event_or_error {
@@ -48,7 +53,10 @@ impl MonitorHandler {
                     self.handle_event(event);
 
                     // And then re-check the status files.
-                    self.check();
+                    let res = self.check();
+
+                    // Update the match status flag.
+                    status.store(res, Ordering::Relaxed);
                 }
                 Err(_) => {
                     continue;

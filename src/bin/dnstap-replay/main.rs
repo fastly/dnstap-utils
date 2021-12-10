@@ -6,6 +6,8 @@ use clap::{Parser, ValueHint};
 use log::*;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::net::UnixListener;
 
 /// Prometheus metrics.
@@ -142,14 +144,19 @@ impl Server {
     /// configuration. Each [`DnstapHandler`] creates its own UDP query socket for querying the
     /// configured DNS server.
     async fn run(&mut self) -> Result<()> {
+        let match_status = Arc::new(AtomicBool::new(false));
+
         // Start up the [`MonitorHandler'].
         if !self.opts.status_files.is_empty() {
+            let match_status_mh = match_status.clone();
             let mut monitor_handler = MonitorHandler::new(&self.opts.status_files)?;
             tokio::spawn(async move {
-                if let Err(err) = monitor_handler.run().await {
+                if let Err(err) = monitor_handler.run(match_status_mh).await {
                     error!("Monitor handler error: {}", err);
                 }
             });
+        } else {
+            match_status.store(true, Ordering::Relaxed);
         }
 
         // Start up the [`HttpHandler`].
@@ -162,8 +169,11 @@ impl Server {
 
         // Start up the [`DnstapHandler`]'s.
         for _ in 0..self.opts.num_sockets {
+            let match_status_dh = match_status.clone();
+
             // Create a new [`DnstapHandler`] and give it a cloned channel receiver.
             let mut dnstap_handler = DnstapHandler::new(
+                match_status_dh,
                 self.channel_receiver.clone(),
                 self.channel_error_sender.clone(),
                 self.opts.dns,

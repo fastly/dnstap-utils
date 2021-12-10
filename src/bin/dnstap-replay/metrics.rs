@@ -20,6 +20,7 @@ make_static_metric! {
         "result" => {
             matched,
             mismatched,
+            suppressed,
         },
     }
 
