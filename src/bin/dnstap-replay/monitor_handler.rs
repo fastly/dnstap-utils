@@ -58,8 +58,9 @@ impl MonitorHandler {
                     // Update the match status flag.
                     status.store(res, Ordering::Relaxed);
                 }
-                Err(_) => {
-                    continue;
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+                _ => {
+                    panic!("Error while reading inotify events");
                 }
             }
         }
