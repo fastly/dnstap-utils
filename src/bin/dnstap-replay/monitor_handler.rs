@@ -43,8 +43,9 @@ impl MonitorHandler {
         // event-driven, events won't be received for pre-existing status files.
         let res = self.check();
 
-        // Update the match status flag.
+        // Update the match status flag and metric.
         status.store(res, Ordering::Relaxed);
+        crate::metrics::MATCH_STATUS.set(res as i64);
 
         while let Some(event_or_error) = stream.next().await {
             match event_or_error {
@@ -55,8 +56,9 @@ impl MonitorHandler {
                     // And then re-check the status files.
                     let res = self.check();
 
-                    // Update the match status flag.
+                    // Update the match status flag and metric.
                     status.store(res, Ordering::Relaxed);
+                    crate::metrics::MATCH_STATUS.set(res as i64);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
                 _ => {

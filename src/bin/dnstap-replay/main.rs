@@ -157,6 +157,7 @@ impl Server {
             });
         } else {
             match_status.store(true, Ordering::Relaxed);
+            crate::metrics::MATCH_STATUS.set(1);
         }
 
         // Start up the [`HttpHandler`].

@@ -1,5 +1,7 @@
 use lazy_static::{initialize, lazy_static};
-use prometheus::{opts, register_int_counter, register_int_counter_vec, IntCounter};
+use prometheus::{
+    opts, register_int_counter, register_int_counter_vec, register_int_gauge, IntCounter, IntGauge,
+};
 use prometheus_static_metric::{make_static_metric, register_static_int_counter_vec};
 
 make_static_metric! {
@@ -100,6 +102,11 @@ lazy_static! {
             &["result"]
         )
         .unwrap();
+    pub static ref MATCH_STATUS: IntGauge = register_int_gauge!(opts!(
+        "dnstap_replay_match_status",
+        "Whether match comparisons are enabled (1) or suppressed (0)."
+    ))
+    .unwrap();
 }
 
 pub fn initialize_metrics() {
