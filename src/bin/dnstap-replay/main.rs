@@ -2,9 +2,12 @@
 
 use anyhow::Result;
 use async_channel::{bounded, Receiver, Sender};
-use clap::Parser;
+use clap::{Parser, ValueHint};
 use log::*;
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tokio::net::UnixListener;
 
 /// Prometheus metrics.
@@ -21,6 +24,10 @@ use frame_handler::*;
 /// The HTTP server for stats and reporting.
 mod http_handler;
 use http_handler::*;
+
+/// The status file monitoring handler.
+mod monitor_handler;
+use monitor_handler::*;
 
 /// The generated protobuf definitions for the dnstap protocol.
 use dnstap_utils::dnstap;
@@ -78,6 +85,16 @@ struct Opts {
     #[clap(long)]
     proxy: bool,
 
+    /// Match status files to compare
+    #[clap(long = "match-status-files",
+           name = "STATUS-FILE",
+           required = false,
+           min_values = 2,
+           parse(from_os_str),
+           value_hint = ValueHint::FilePath)
+    ]
+    status_files: Vec<PathBuf>,
+
     /// Unix socket path to listen on
     #[clap(long, name = "PATH")]
     unix: String,
@@ -127,6 +144,22 @@ impl Server {
     /// configuration. Each [`DnstapHandler`] creates its own UDP query socket for querying the
     /// configured DNS server.
     async fn run(&mut self) -> Result<()> {
+        let match_status = Arc::new(AtomicBool::new(false));
+
+        // Start up the [`MonitorHandler'].
+        if !self.opts.status_files.is_empty() {
+            let match_status_mh = match_status.clone();
+            let mut monitor_handler = MonitorHandler::new(&self.opts.status_files)?;
+            tokio::spawn(async move {
+                if let Err(err) = monitor_handler.run(match_status_mh).await {
+                    error!("Monitor handler error: {}", err);
+                }
+            });
+        } else {
+            match_status.store(true, Ordering::Relaxed);
+            crate::metrics::MATCH_STATUS.set(1);
+        }
+
         // Start up the [`HttpHandler`].
         let http_handler = HttpHandler::new(self.opts.http, self.channel_error_receiver.clone());
         tokio::spawn(async move {
@@ -137,8 +170,11 @@ impl Server {
 
         // Start up the [`DnstapHandler`]'s.
         for _ in 0..self.opts.num_sockets {
+            let match_status_dh = match_status.clone();
+
             // Create a new [`DnstapHandler`] and give it a cloned channel receiver.
             let mut dnstap_handler = DnstapHandler::new(
+                match_status_dh,
                 self.channel_receiver.clone(),
                 self.channel_error_sender.clone(),
                 self.opts.dns,
