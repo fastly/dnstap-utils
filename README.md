@@ -159,4 +159,7 @@ DNS message to dig-style output using the NLnet Labs
 
 ## License
 
-TBD
+`dnstap-utils` is distributed under the terms of the BSD-3-Clause
+license. See the [LICENSE] file for details.
+
+[LICENSE]: https://github.com/fastly/dnstap-utils/blob/main/LICENSE
