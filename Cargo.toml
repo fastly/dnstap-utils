@@ -3,6 +3,9 @@ name = "dnstap-utils"
 version = "0.1.0"
 authors = ["Fastly"]
 edition = "2018"
+repository = "https://github.com/fastly/dnstap-utils"
+license = "BSD-3-Clause"
+license-file = "LICENSE"
 
 [dependencies]
 anyhow = "1.0.43"
