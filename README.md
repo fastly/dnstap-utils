@@ -103,9 +103,6 @@ populated with a serialized version of the error encountered by
 well as the DNS response message sent by the target nameserver, which
 allows for byte-for-byte analysis of the mismatch.
 
-TODO: A tool is needed to decode the dnstap `extra` field so that the
-original and mismatched response messages can be compared.
-
 ### `dnstap-replay`: Command-line example
 
 `dnstap-replay` requires the `--dns`, `--http`, and `--unix` arguments
