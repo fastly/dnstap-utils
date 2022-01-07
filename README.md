@@ -14,7 +14,8 @@ via an HTTP endpoint for later analysis.
 
 ### `dnstap-replay`: dnstap message requirements
 
-The only type of dnstap log payload that `dnstap-replay` supports is the
+`dnstap-replay` was designed for testing authoritative nameservers. The
+only type of dnstap log payload that `dnstap-replay` supports is the
 `Message/AUTH_RESPONSE` type. Any other dnstap log payload types will be
 silently ignored by `dnstap-replay`.
 
@@ -35,14 +36,13 @@ the original DNS query message given only the DNS response message. In
 some cases it may be impossible to recover the original query, for
 instance if the query is not a validly formatted DNS message.
 
-For the Knot DNS server, [there is a patch in the issue
-tracker](https://gitlab.nic.cz/knot/knot-dns/-/issues/764) to add a
+For the Knot DNS server, [support was added in version
+3.1.4](https://gitlab.nic.cz/knot/knot-dns/-/issues/764) to add a
 configuration option `responses-with-queries` to the `dnstap` module
 that logs ***both*** query and response messages together in the
-`Message/AUTH_RESPONSE` log payload type. After applying this patch, the
-`mod-dnstap` configuration stanza in `knot.conf` would need to look like
-the following to produce dnstap output in the format needed by
-`dnstap-replay`:
+`Message/AUTH_RESPONSE` log payload type. The `mod-dnstap` configuration
+stanza in `knot.conf` would need to look like the following to produce
+dnstap output with the fields needed by `dnstap-replay`:
 
 ```
 mod-dnstap:
@@ -63,7 +63,7 @@ target nameserver sees the source IP address of the machine running
 messages. This may elicit varying DNS response message content from the
 target nameserver.
 
-In order to avoid this problem, `dnstap-replay` uses the haproxy
+In order to avoid this problem, `dnstap-replay` can use the haproxy
 [PROXY](https://www.haproxy.org/download/2.5/doc/proxy-protocol.txt)
 protocol to prepend the original source address and source port as
 logged in the `query_address` and `query_port` dnstap message fields to
@@ -73,14 +73,12 @@ requires support in the target nameserver. Currently,
 [PowerDNS Authoritative
 Nameserver](https://github.com/PowerDNS/pdns/pull/10660), and [PowerDNS
 Recursor](https://github.com/PowerDNS/pdns/pull/8874) have support for
-the PROXY header. Additionally, for Knot DNS, [there is a patch in the
+the PROXY header. Additionally, for Knot DNS, [there are patches in the
 issue tracker](https://gitlab.nic.cz/knot/knot-dns/-/issues/762) that
-adds support for the PROXY header.
+add support for the PROXY header.
 
-TODO: Currently the PROXY header is unconditionally added to outgoing
-DNS queries. For testing nameservers that are not configured to have
-source IP address dependent behavior, it should be possible to omit the
-PROXY header.
+To enable this functionality in `dnstap-replay`, add the `--proxy`
+option to the command-line parameters.
 
 ### `dnstap-replay`: HTTP server
 
@@ -91,8 +89,8 @@ metrics](src/bin/dnstap-replay/metrics.rs) which are available at the
 When `dnstap-replay` sends a DNS query to the target nameserver and the
 response from the target nameserver does not exactly match the
 originally logged response message, a log message containing the
-mismatched response message is generated and buffered and can be
-retrieved from the `/errors` HTTP endpoint. This endpoint drains the
+mismatched response message is generated and buffered in memory and can
+be retrieved from the `/errors` HTTP endpoint. This endpoint drains the
 error buffer and provides the output in Frame Streams format containing
 dnstap payloads.
 
@@ -142,6 +140,22 @@ The Prometheus metrics endpoint can be accessed at
 
 The Frame Streams errors endpoint can be accessed at
 `http://127.0.0.1:53080/errors`.
+
+## `dnstap-dump`
+
+`dnstap-dump` is a utility which dumps a Frame Streams formatted dnstap
+file to YAML. The output format is very similar to the format generated
+by the [`dnstap-ldns`](https://github.com/dnstap/dnstap-ldns) utility.
+
+It has support for decoding the `extra` field in dnstap error payloads
+produced by `dnstap-replay`, and it also dumps DNS wire messages in
+hex-encoded wire format as well as in dig-style output.
+
+## `fmt-dns-message`
+
+`fmt-dns-message` is a utility which converts a hex-encoded wire format
+DNS message to dig-style output using the NLnet Labs
+[`domain`](https://github.com/NLnetLabs/domain) crate.
 
 ## License
 
