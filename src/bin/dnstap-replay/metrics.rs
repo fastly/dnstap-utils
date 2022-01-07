@@ -1,3 +1,5 @@
+// Copyright 2021 Fastly, Inc.
+
 use lazy_static::{initialize, lazy_static};
 use prometheus::{
     opts, register_int_counter, register_int_counter_vec, register_int_gauge, IntCounter, IntGauge,

@@ -1,3 +1,5 @@
+// Copyright 2021 Fastly, Inc.
+
 use anyhow::{bail, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use std::convert::TryFrom;
