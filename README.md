@@ -64,21 +64,25 @@ messages. This may elicit varying DNS response message content from the
 target nameserver.
 
 In order to avoid this problem, `dnstap-replay` can use the haproxy
-[PROXY](https://www.haproxy.org/download/2.5/doc/proxy-protocol.txt)
-protocol to prepend the original source address and source port as
-logged in the `query_address` and `query_port` dnstap message fields to
-the outgoing DNS query message sent to the target nameserver. This
-requires support in the target nameserver. Currently,
-[dnsdist](https://blog.powerdns.com/2021/05/11/dnsdist-1-6-0-released/),
-[PowerDNS Authoritative
-Nameserver](https://github.com/PowerDNS/pdns/pull/10660), and [PowerDNS
-Recursor](https://github.com/PowerDNS/pdns/pull/8874) have support for
-the PROXY header. Additionally, for Knot DNS, [there are patches in the
-issue tracker](https://gitlab.nic.cz/knot/knot-dns/-/issues/762) that
-add support for the PROXY header.
+[PROXY] protocol to prepend the original source address and source port
+as logged in the `query_address` and `query_port` dnstap message fields
+to the outgoing DNS query message sent to the target nameserver. This
+requires support in the target nameserver. Currently, [dnsdist],
+[PowerDNS Authoritative Nameserver], and [PowerDNS Recursor] have
+support for the PROXY header. For [Knot DNS], there is an open issue
+regarding adding support. Additionally, we developed a [patch for Knot]
+that implements support for PROXY headers for UDP queries that are sent
+from a 127.0.0.0/8 network address.
 
 To enable this functionality in `dnstap-replay`, add the `--proxy`
 option to the command-line parameters.
+
+[PROXY]: https://www.haproxy.org/download/2.5/doc/proxy-protocol.txt
+[dnsdist]: https://blog.powerdns.com/2021/05/11/dnsdist-1-6-0-released/
+[PowerDNS Authoritative Nameserver]: https://github.com/PowerDNS/pdns/pull/10660
+[PowerDNS Recursor]: https://github.com/PowerDNS/pdns/pull/8874
+[Knot DNS]: https://gitlab.nic.cz/knot/knot-dns/-/issues/762
+[patch for Knot]: https://github.com/fastly/dnstap-utils/blob/main/patches/knot-dns/0001-Support-haproxy-PROXY-v2-protocol-on-incoming-UDP-pa.patch
 
 ### `dnstap-replay`: HTTP server
 
