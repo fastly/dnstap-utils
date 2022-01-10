@@ -1,7 +1,9 @@
 # dnstap-utils
 
-A collection of [dnstap](https://dnstap.info/) utilities implemented using the
-Rust programming language.
+A collection of [dnstap] utilities implemented using the Rust
+programming language.
+
+[dnstap]: https://dnstap.info/
 
 ## `dnstap-replay`
 
@@ -36,8 +38,7 @@ the original DNS query message given only the DNS response message. In
 some cases it may be impossible to recover the original query, for
 instance if the query is not a validly formatted DNS message.
 
-For the Knot DNS server, [support was added in version
-3.1.4](https://gitlab.nic.cz/knot/knot-dns/-/issues/764) to add a
+For the Knot DNS server, [support was added in version 3.1.4] to add a
 configuration option `responses-with-queries` to the `dnstap` module
 that logs ***both*** query and response messages together in the
 `Message/AUTH_RESPONSE` log payload type. The `mod-dnstap` configuration
@@ -52,6 +53,8 @@ mod-dnstap:
     log-responses: on
     responses-with-queries: on
 ```
+
+[support was added in version 3.1.4]: https://gitlab.nic.cz/knot/knot-dns/-/issues/764
 
 ### `dnstap-replay`: PROXY support in target nameserver
 
@@ -87,8 +90,7 @@ option to the command-line parameters.
 ### `dnstap-replay`: HTTP server
 
 `dnstap-replay` includes a built-in HTTP server to export [Prometheus
-metrics](src/bin/dnstap-replay/metrics.rs) which are available at the
-`/metrics` HTTP endpoint.
+metrics] which are available at the `/metrics` HTTP endpoint.
 
 When `dnstap-replay` sends a DNS query to the target nameserver and the
 response from the target nameserver does not exactly match the
@@ -100,12 +102,13 @@ dnstap payloads.
 
 The dnstap log messages exported via the `/errors` endpoint are the
 originally logged dnstap messages received by `dnstap-replay`, with the
-dnstap [`extra`
-field](https://github.com/dnstap/dnstap.pb/blob/9bafb5b59dacc48a6ff6a839e419e540f1201c42/dnstap.proto#L37-L40)
-populated with a serialized version of the error encountered by
-`dnstap-replay`. This preserves the original DNS response message as
-well as the DNS response message sent by the target nameserver, which
-allows for byte-for-byte analysis of the mismatch.
+[dnstap `extra` field] populated with a serialized version of the error
+encountered by `dnstap-replay`. This preserves the original DNS response
+message as well as the DNS response message sent by the target
+nameserver, which allows for byte-for-byte analysis of the mismatch.
+
+[Prometheus metrics]: https://github.com/fastly/dnstap-utils/blob/main/src/bin/dnstap-replay/metrics.rs
+[dnstap `extra` field]: https://github.com/dnstap/dnstap.pb/blob/9bafb5b59dacc48a6ff6a839e419e540f1201c42/dnstap.proto#L37-L40
 
 ### `dnstap-replay`: Command-line example
 
@@ -146,17 +149,20 @@ The Frame Streams errors endpoint can be accessed at
 
 `dnstap-dump` is a utility which dumps a Frame Streams formatted dnstap
 file to YAML. The output format is very similar to the format generated
-by the [`dnstap-ldns`](https://github.com/dnstap/dnstap-ldns) utility.
+by the [`dnstap-ldns`] utility.
 
 It has support for decoding the `extra` field in dnstap error payloads
 produced by `dnstap-replay`, and it also dumps DNS wire messages in
 hex-encoded wire format as well as in dig-style output.
 
+[`dnstap-ldns`]: https://github.com/dnstap/dnstap-ldns
+
 ## `fmt-dns-message`
 
 `fmt-dns-message` is a utility which converts a hex-encoded wire format
-DNS message to dig-style output using the NLnet Labs
-[`domain`](https://github.com/NLnetLabs/domain) crate.
+DNS message to dig-style output using the [NLnet Labs `domain` crate].
+
+[NLnet Labs `domain` crate]: https://github.com/NLnetLabs/domain
 
 ## License
 
