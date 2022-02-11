@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2022 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -53,6 +53,10 @@ pub struct DnstapHandler {
     /// protobuf messages to the [`crate::HttpHandler`].
     channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
 
+    /// The send side of the async channel, used by [`DnstapHandler`]'s to send timeout dnstap
+    /// protobuf messages to the [`crate::HttpHandler`].
+    channel_timeout_sender: async_channel::Sender<dnstap::Dnstap>,
+
     /// Socket address/port of the DNS server to send DNS queries to.
     dns_address: SocketAddr,
 
@@ -87,6 +91,7 @@ impl DnstapHandler {
         match_status: Arc<AtomicBool>,
         channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
         channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
+        channel_timeout_sender: async_channel::Sender<dnstap::Dnstap>,
         dns_address: SocketAddr,
         proxy: bool,
         dscp: Option<u8>,
@@ -95,6 +100,7 @@ impl DnstapHandler {
             match_status,
             channel_receiver,
             channel_error_sender,
+            channel_timeout_sender,
             dns_address,
             proxy,
             dscp,
@@ -195,16 +201,18 @@ impl DnstapHandler {
                     // object's `extra` field.
                     d.extra = Some(e.serialize().to_vec());
 
-                    // Send the dnstap message to the errors channel so that it can be retrieved
-                    // from the /errors HTTP endpoint.
-                    self.send_error(d);
-
                     match e {
                         DnstapHandlerError::Mismatch(_, _, _) => {
+                            // Send to the errors channel.
+                            self.send_error(d);
+
                             crate::metrics::DNS_COMPARISONS.mismatched.inc();
                         }
 
                         DnstapHandlerError::Timeout => {
+                            // Send to the timeouts channel.
+                            self.send_timeout(d);
+
                             crate::metrics::DNS_QUERIES.timeout.inc();
 
                             // In the case of a DNS query timeout, we can't tell the difference
@@ -227,7 +235,10 @@ impl DnstapHandler {
                         }
 
                         DnstapHandlerError::MissingField => {
-                            // Already handled by metric increment above.
+                            // Send to the errors channel.
+                            self.send_error(d);
+
+                            // Metric increment already handled above.
                         }
                     }
                 } else if let Some(e) = e.downcast_ref::<DnstapHandlerInternalError>() {
@@ -353,6 +364,17 @@ impl DnstapHandler {
             }
             Err(_) => {
                 crate::metrics::CHANNEL_ERROR_TX.error.inc();
+            }
+        }
+    }
+
+    fn send_timeout(&self, d: dnstap::Dnstap) {
+        match self.channel_timeout_sender.try_send(d) {
+            Ok(_) => {
+                crate::metrics::CHANNEL_TIMEOUT_TX.success.inc();
+            }
+            Err(_) => {
+                crate::metrics::CHANNEL_TIMEOUT_TX.error.inc();
             }
         }
     }

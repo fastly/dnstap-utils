@@ -107,6 +107,11 @@ encountered by `dnstap-replay`. This preserves the original DNS response
 message as well as the DNS response message sent by the target
 nameserver, which allows for byte-for-byte analysis of the mismatch.
 
+A separate `/timeouts` endpoint is available which can be used to
+retrieve dnstap log messages that resulted in timeouts when re-querying
+the target nameserver. The format used is the same as the `/errors`
+endpoint.
+
 [Prometheus metrics]: https://github.com/fastly/dnstap-utils/blob/main/src/bin/dnstap-replay/metrics.rs
 [dnstap `extra` field]: https://github.com/dnstap/dnstap.pb/blob/9bafb5b59dacc48a6ff6a839e419e540f1201c42/dnstap.proto#L37-L40
 
@@ -142,8 +147,11 @@ be sent to the target nameserver which should be configured to listen on
 The Prometheus metrics endpoint can be accessed at
 `http://127.0.0.1:53080/metrics`.
 
-The Frame Streams errors endpoint can be accessed at
+The Frame Streams "errors" endpoint can be accessed at
 `http://127.0.0.1:53080/errors`.
+
+The Frame Streams "timeouts" endpoint can be accessad at
+`http://127.0.0.1:53080/timeouts`.
 
 ## `dnstap-dump`
 

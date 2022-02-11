@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2022 Fastly, Inc.
 
 use anyhow::Result;
 use async_channel::{bounded, Receiver, Sender};
@@ -52,6 +52,14 @@ struct Server {
     /// The receive side of the async channel used by [`DnstapHandler`]'s to send error dnstap
     /// protobuf messages to the [`HttpHandler`].
     channel_error_receiver: Receiver<dnstap::Dnstap>,
+
+    /// The send side of the async channel used by [`DnstapHandler`]'s to send timeout dnstap
+    /// protobuf messages to the [`HttpHandler`].
+    channel_timeout_sender: Sender<dnstap::Dnstap>,
+
+    /// The receive side of the async channel used by [`DnstapHandler`]'s to send timeout dnstap
+    /// protobuf messages to the [`HttpHandler`].
+    channel_timeout_receiver: Receiver<dnstap::Dnstap>,
 }
 
 /// Command-line arguments.
@@ -64,6 +72,10 @@ struct Opts {
     /// Capacity of async channel for /errors endpoint buffer
     #[clap(long, default_value = "100000")]
     channel_error_capacity: usize,
+
+    /// Capacity of async channel for /timeouts endpoint buffer
+    #[clap(long, default_value = "100000")]
+    channel_timeout_capacity: usize,
 
     /// UDP DNS server and port to send queries to
     #[clap(long, name = "DNS IP:PORT")]
@@ -125,8 +137,12 @@ impl Server {
         // Create the channel for connecting [`FrameHandler`]'s and [`DnstapHandler`]'s.
         let (channel_sender, channel_receiver) = bounded(opts.channel_capacity);
 
-        // Create the channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
+        // Create the error channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
         let (channel_error_sender, channel_error_receiver) = bounded(opts.channel_error_capacity);
+
+        // Create the timeout channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
+        let (channel_timeout_sender, channel_timeout_receiver) =
+            bounded(opts.channel_timeout_capacity);
 
         Server {
             opts: opts.clone(),
@@ -134,6 +150,8 @@ impl Server {
             channel_receiver,
             channel_error_sender,
             channel_error_receiver,
+            channel_timeout_sender,
+            channel_timeout_receiver,
         }
     }
 
@@ -161,7 +179,9 @@ impl Server {
         }
 
         // Start up the [`HttpHandler`].
-        let http_handler = HttpHandler::new(self.opts.http, self.channel_error_receiver.clone());
+        let http_handler = HttpHandler::new(self.opts.http,
+                                            self.channel_error_receiver.clone(),
+                                            self.channel_timeout_receiver.clone());
         tokio::spawn(async move {
             if let Err(err) = http_handler.run().await {
                 error!("Hyper HTTP server error: {}", err);
@@ -177,6 +197,7 @@ impl Server {
                 match_status_dh,
                 self.channel_receiver.clone(),
                 self.channel_error_sender.clone(),
+                self.channel_timeout_sender.clone(),
                 self.opts.dns,
                 self.opts.proxy,
                 self.opts.dscp,

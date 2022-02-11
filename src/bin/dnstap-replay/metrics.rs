@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2022 Fastly, Inc.
 
 use lazy_static::{initialize, lazy_static};
 use prometheus::{
@@ -14,6 +14,19 @@ make_static_metric! {
     }
 
     pub struct ChannelErrorTxVec: IntCounter {
+        "result" => {
+            success,
+            error,
+        },
+    }
+
+    pub struct ChannelTimeoutRxVec: IntCounter {
+        "result" => {
+            success,
+        },
+    }
+
+    pub struct ChannelTimeoutTxVec: IntCounter {
         "result" => {
             success,
             error,
@@ -62,6 +75,20 @@ lazy_static! {
         ChannelErrorTxVec,
         "dnstap_replay_channel_error_tx_total",
         "Number of error channel sends performed.",
+        &["result"]
+    )
+    .unwrap();
+    pub static ref CHANNEL_TIMEOUT_RX: ChannelTimeoutRxVec = register_static_int_counter_vec!(
+        ChannelTimeoutRxVec,
+        "dnstap_replay_channel_timeout_rx_total",
+        "Number of timeout channel receives performed.",
+        &["result"]
+    )
+    .unwrap();
+    pub static ref CHANNEL_TIMEOUT_TX: ChannelTimeoutTxVec = register_static_int_counter_vec!(
+        ChannelTimeoutTxVec,
+        "dnstap_replay_channel_timeout_tx_total",
+        "Number of timeout channel sends performed.",
         &["result"]
     )
     .unwrap();
@@ -114,6 +141,8 @@ lazy_static! {
 pub fn initialize_metrics() {
     initialize(&CHANNEL_ERROR_RX);
     initialize(&CHANNEL_ERROR_TX);
+    initialize(&CHANNEL_TIMEOUT_RX);
+    initialize(&CHANNEL_TIMEOUT_TX);
     initialize(&DATA_BYTES);
     initialize(&DATA_FRAMES);
     initialize(&DNS_COMPARISONS);
