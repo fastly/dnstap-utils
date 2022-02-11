@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2022 Fastly, Inc.
 
 use anyhow::Result;
 use async_stream::stream;
@@ -22,6 +22,7 @@ use dnstap_utils::framestreams_codec::{self, Frame, FrameStreamsCodec};
 pub struct HttpHandler {
     http_address: SocketAddr,
     channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
+    channel_timeout_receiver: async_channel::Receiver<dnstap::Dnstap>,
 }
 
 impl HttpHandler {
@@ -30,27 +31,32 @@ impl HttpHandler {
     pub fn new(
         http_address: SocketAddr,
         channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
+        channel_timeout_receiver: async_channel::Receiver<dnstap::Dnstap>,
     ) -> Self {
         HttpHandler {
             http_address,
             channel_error_receiver,
+            channel_timeout_receiver,
         }
     }
 
     /// Run the HTTP server.
     pub async fn run(&self) -> Result<()> {
-        // Clone the error channel for the outer closure.
-        let channel = self.channel_error_receiver.clone();
+        // Clone the channels for the outer closure.
+        let channel_error = self.channel_error_receiver.clone();
+        let channel_timeout = self.channel_timeout_receiver.clone();
 
         let make_svc = make_service_fn(move |_| {
-            // Clone the error channel again for the inner closure.
-            let channel = channel.clone();
+            // Clone the channels again for the inner closure.
+            let channel_error = channel_error.clone();
+            let channel_timeout = channel_timeout.clone();
 
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    let channel = channel.clone();
+                    let channel_error = channel_error.clone();
+                    let channel_timeout = channel_timeout.clone();
 
-                    async move { http_service(req, channel).await }
+                    async move { http_service(req, channel_error, channel_timeout).await }
                 }))
             }
         });
@@ -67,13 +73,17 @@ impl HttpHandler {
 pub async fn http_service(
     req: Request<Body>,
     channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
+    channel_timeout_receiver: async_channel::Receiver<dnstap::Dnstap>,
 ) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
         // Handle the `/metrics` endpoint.
         (&Method::GET, "/metrics") => get_metrics_response(),
 
         // Handle the `/errors` endpoint.
-        (&Method::GET, "/errors") => get_errors_response(channel_error_receiver),
+        (&Method::GET, "/errors") => get_channel_response(channel_error_receiver),
+
+        // Handle the `/timeouts` endpoint.
+        (&Method::GET, "/timeouts") => get_channel_response(channel_timeout_receiver),
 
         // Default 404 Not Found response.
         _ => {
@@ -101,9 +111,9 @@ fn get_metrics_response() -> Result<Response<Body>> {
     Ok(response)
 }
 
-/// Handle requests for the errors endpoint, which returns a Frame Streams formatted log file
-/// of the error dnstap payloads.
-fn get_errors_response(
+/// Handle requests for the endpoints that return a Frame Streams formatted log file of dnstap
+/// payloads from a channel.
+fn get_channel_response(
     channel: async_channel::Receiver<dnstap::Dnstap>,
 ) -> Result<Response<Body>> {
     Ok(Response::new(Body::wrap_stream(dnstap_receiver_to_stream(
