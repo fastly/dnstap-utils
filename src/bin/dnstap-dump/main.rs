@@ -3,7 +3,7 @@
 use anyhow::{bail, Result};
 use chrono::NaiveDateTime;
 use clap::{Parser, ValueHint};
-use heck::ShoutySnekCase;
+use heck::ToShoutySnekCase;
 use prost::Message;
 use std::convert::TryFrom;
 use std::fmt::Debug;
