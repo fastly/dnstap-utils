@@ -97,6 +97,10 @@ struct Opts {
     #[clap(long)]
     proxy: bool,
 
+    /// Time to delay after status files match
+    #[clap(long, name = "MILLISECONDS", default_value = "5000", required = false)]
+    match_status_delay: u64,
+
     /// Match status files to compare
     #[clap(long = "match-status-files",
            name = "STATUS-FILE",
@@ -167,7 +171,8 @@ impl Server {
         // Start up the [`MonitorHandler'].
         if !self.opts.status_files.is_empty() {
             let match_status_mh = match_status.clone();
-            let mut monitor_handler = MonitorHandler::new(&self.opts.status_files)?;
+            let mut monitor_handler =
+                MonitorHandler::new(&self.opts.status_files, self.opts.match_status_delay)?;
             tokio::spawn(async move {
                 if let Err(err) = monitor_handler.run(match_status_mh).await {
                     error!("Monitor handler error: {}", err);

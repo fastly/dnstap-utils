@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2022 Fastly, Inc.
 
 use anyhow::{bail, Context, Result};
 use futures_util::StreamExt;
@@ -9,22 +9,25 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 
 /// Monitor status files for changes and detect when all status files are identical.
 pub struct MonitorHandler {
     inotify: Inotify,
     monitors: Vec<FileMonitor>,
+    delay: u64,
 }
 
 impl MonitorHandler {
     /// Create a new [`MonitorHandler`] that watches the set of status files specified in
     /// `monitor_files`.
-    pub fn new(monitor_files: &[PathBuf]) -> Result<Self> {
+    pub fn new(monitor_files: &[PathBuf], delay: u64) -> Result<Self> {
         let inotify = Inotify::init().context("Failed to initialize inotify")?;
 
         let mut monitor = MonitorHandler {
             inotify,
             monitors: vec![],
+            delay,
         };
 
         for path in monitor_files {
@@ -41,7 +44,7 @@ impl MonitorHandler {
 
         // Perform an initial check of the current status files, if any. Since inotify is
         // event-driven, events won't be received for pre-existing status files.
-        let res = self.check();
+        let res = self.check().await;
 
         // Update the match status flag and metric.
         status.store(res, Ordering::Relaxed);
@@ -54,7 +57,7 @@ impl MonitorHandler {
                     self.handle_event(event);
 
                     // And then re-check the status files.
-                    let res = self.check();
+                    let res = self.check().await;
 
                     // Update the match status flag and metric.
                     status.store(res, Ordering::Relaxed);
@@ -80,11 +83,16 @@ impl MonitorHandler {
     }
 
     /// Check if all of the status files being monitored have identical contents.
-    fn check(&self) -> bool {
+    async fn check(&self) -> bool {
         let res = match self.monitors.first() {
             Some(first) => self.monitors.iter().all(|item| item == first),
             None => false,
         };
+        // Sleep for the configured match delay. This should be set to a large enough value to
+        // allow pending dnstap payloads to be drained and suppressed.
+        if res && self.delay > 0 {
+            sleep(Duration::from_millis(self.delay)).await;
+        }
         debug!("Monitor status: {}", res);
         res
     }
