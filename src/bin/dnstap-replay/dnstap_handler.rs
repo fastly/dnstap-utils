@@ -451,7 +451,7 @@ fn set_udp_dscp(s: &UdpSocket, dscp: u8) -> Result<()> {
     use std::os::unix::io::AsRawFd;
 
     let raw_fd = s.as_raw_fd();
-    let optval: libc::c_int = dscp.into();
+    let optval: libc::c_int = (dscp << 2).into();
 
     let ret = match s.local_addr()? {
         SocketAddr::V4(_) => unsafe {
