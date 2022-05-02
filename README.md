@@ -174,7 +174,9 @@ DNS message to dig-style output using the [NLnet Labs `domain` crate].
 
 ## License
 
-`dnstap-utils` is distributed under the terms of the BSD-3-Clause
-license. See the [LICENSE] file for details.
+`dnstap-utils` is distributed under the terms of the [Apache-2.0]
+license. See the [LICENSE] and [NOTICE] files for details.
 
+[Apache-2.0]: https://www.apache.org/licenses/LICENSE-2.0
 [LICENSE]: https://github.com/fastly/dnstap-utils/blob/main/LICENSE
+[NOTICE]: https://github.com/fastly/dnstap-utils/blob/main/NOTICE
