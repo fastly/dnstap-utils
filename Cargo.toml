@@ -7,7 +7,7 @@ keywords = ["dns", "dnstap"]
 categories = ["command-line-utilities"]
 edition = "2021"
 repository = "https://github.com/fastly/dnstap-utils"
-license = "BSD-3-Clause"
+license = "Apache-2.0"
 include = ["src/**/*", "LICENSE", "README.md", "dnstap.pb/dnstap.proto", "build.rs"]
 
 [dependencies]
