@@ -258,3 +258,28 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
         }
     }
 }
+
+pub fn dns_message_is_truncated(raw_msg_bytes: &[u8]) -> bool {
+    // Only check a message if the complete header (12 octets) was received.
+    if raw_msg_bytes.len() >= 12 {
+        let msg = domain::base::Header::for_message_slice(raw_msg_bytes);
+        return msg.tc();
+    }
+    false
+}
+
+#[test]
+fn test_dns_message_is_truncated() {
+    // Too few bytes to be a complete DNS header.
+    assert!(!dns_message_is_truncated(&hex::decode("1234").unwrap()));
+
+    // Real DNS header with the TC bit set.
+    assert!(dns_message_is_truncated(
+        &hex::decode("b84587000001000000000001").unwrap()
+    ));
+
+    // Real DNS header with the TC bit unset.
+    assert!(!dns_message_is_truncated(
+        &hex::decode("b84585000001000000010001").unwrap()
+    ));
+}

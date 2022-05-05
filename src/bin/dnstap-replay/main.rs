@@ -89,6 +89,10 @@ struct Opts {
     #[clap(long, name = "HTTP IP:PORT")]
     http: SocketAddr,
 
+    /// Whether to ignore UDP responses with the TC bit set
+    #[clap(long)]
+    ignore_tc: bool,
+
     /// Number of UDP client sockets to use to send queries to DNS server
     #[clap(long, default_value = "10")]
     num_sockets: usize,
@@ -206,6 +210,7 @@ impl Server {
                 self.opts.dns,
                 self.opts.proxy,
                 self.opts.dscp,
+                self.opts.ignore_tc,
             )
             .await?;
 

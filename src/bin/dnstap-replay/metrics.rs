@@ -38,6 +38,7 @@ make_static_metric! {
             matched,
             mismatched,
             suppressed,
+            udp_tc_ignored,
         },
     }
 

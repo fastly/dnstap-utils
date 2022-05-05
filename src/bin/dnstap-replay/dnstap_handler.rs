@@ -12,6 +12,7 @@ use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
 use dnstap_utils::dnstap;
+use dnstap_utils::util::dns_message_is_truncated;
 use dnstap_utils::util::try_from_u8_slice_for_ipaddr;
 use dnstap_utils::util::DnstapHandlerError;
 
@@ -66,6 +67,9 @@ pub struct DnstapHandler {
     /// The DSCP value to use for re-sent DNS queries.
     dscp: Option<u8>,
 
+    /// Whether to ignore UDP responses with the TC bit set
+    ignore_tc: bool,
+
     /// Per-handler DNS client socket to use to send DNS queries to the DNS server under test. This
     /// is an [`Option<UdpSocket>`] rather than a [`UdpSocket`] because in the case of a timeout
     /// the socket will need to be closed and reopened.
@@ -95,6 +99,7 @@ impl DnstapHandler {
         dns_address: SocketAddr,
         proxy: bool,
         dscp: Option<u8>,
+        ignore_tc: bool,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
             match_status,
@@ -104,6 +109,7 @@ impl DnstapHandler {
             dns_address,
             proxy,
             dscp,
+            ignore_tc,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
         };
@@ -332,6 +338,14 @@ impl DnstapHandler {
                         if response_message == received_message {
                             // Match.
                             crate::metrics::DNS_COMPARISONS.matched.inc();
+                        } else if self.ignore_tc
+                            && (dns_message_is_truncated(response_message)
+                                || dns_message_is_truncated(received_message))
+                        {
+                            // Either the original DNS response message or the DNS response message
+                            // received from the DNS server under test was truncated, and the
+                            // option to ignore TC=1 responses was enabled.
+                            crate::metrics::DNS_COMPARISONS.udp_tc_ignored.inc();
                         } else {
                             // Mismatch.
                             bail!(DnstapHandlerError::Mismatch(
