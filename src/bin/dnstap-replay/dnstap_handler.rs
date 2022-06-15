@@ -16,6 +16,8 @@ use dnstap_utils::util::dns_message_is_truncated;
 use dnstap_utils::util::try_from_u8_slice_for_ipaddr;
 use dnstap_utils::util::DnstapHandlerError;
 
+use crate::Opts;
+
 /// Duration for [`DnstapHandler`]'s to wait for a response from the DNS server under test.
 const DNS_QUERY_TIMEOUT: Duration = Duration::from_millis(5000);
 
@@ -42,6 +44,9 @@ const DNS_RESPONSE_BUFFER_SIZE: usize = 4096;
 ///    prepended DNS queries that the [`DnstapHandler`] sends and will likely respond with the DNS
 ///    `FORMERR` or `NOTIMP` RCODEs.
 pub struct DnstapHandler {
+    /// Server options.
+    opts: Opts,
+
     /// The result of the status monitor check. Controls whether mismatches should be emitted into
     /// the errors channel (if true) or suppressed (if false).
     match_status: Arc<AtomicBool>,
@@ -57,18 +62,6 @@ pub struct DnstapHandler {
     /// The send side of the async channel, used by [`DnstapHandler`]'s to send timeout dnstap
     /// protobuf messages to the [`crate::HttpHandler`].
     channel_timeout_sender: async_channel::Sender<dnstap::Dnstap>,
-
-    /// Socket address/port of the DNS server to send DNS queries to.
-    dns_address: SocketAddr,
-
-    /// Whether to add PROXY v2 header to re-sent DNS queries.
-    proxy: bool,
-
-    /// The DSCP value to use for re-sent DNS queries.
-    dscp: Option<u8>,
-
-    /// Whether to ignore UDP responses with the TC bit set
-    ignore_tc: bool,
 
     /// Per-handler DNS client socket to use to send DNS queries to the DNS server under test. This
     /// is an [`Option<UdpSocket>`] rather than a [`UdpSocket`] because in the case of a timeout
@@ -86,30 +79,39 @@ enum DnstapHandlerInternalError {
 }
 
 impl DnstapHandler {
-    /// Create a new [`DnstapHandler`] that receives decoded dnstap protobuf payloads from
-    /// `channel_receiver`, synthesizes new DNS client queries and sends them to the DNS server
-    /// under test specified by the address/port in `dns_address`. Responses received from the DNS
-    /// server under test that don't match the original response in the dnstap payload will be sent
-    /// using `channel_error_sender`.
+    /// Create a new [`DnstapHandler`] that receives decoded dnstap protobuf payloads from the
+    /// `channel_receiver` channel, synthesizes new DNS client queries from the received dnstap
+    /// payloads, and sends them to the DNS server under test.
+    ///
+    /// Server options are specified in `opts`, such as:
+    ///
+    /// * `opts.dns`: The DNS server address/port to send DNS queries to.
+    /// * `opts.dscp`: The DSCP value to use for re-sent DNS queries.
+    /// * `opts.proxy`: Whether to add PROXY v2 header to re-sent DNS queries.
+    /// * `opts.ignore_tc`: Whether to ignore UDP responses with the TC bit set.
+    ///
+    /// The `match_status` variable is a shared flag used to suppress mismatches. It needs to be
+    /// externally set to `true` to enable the generation of mismatch output and metrics.
+    ///
+    /// Responses received from the DNS server under test that don't match the original response in
+    /// the dnstap payload will be sent via the channel `channel_error_sender` if `match_status` is
+    /// `true`.
+    ///
+    /// If a DNS timeout occurs when re-querying the DNS server under test, the dnstap payload will
+    /// be sent via the channel `channel_timeout_sender`.
     pub async fn new(
+        opts: &Opts,
         match_status: Arc<AtomicBool>,
         channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
         channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
         channel_timeout_sender: async_channel::Sender<dnstap::Dnstap>,
-        dns_address: SocketAddr,
-        proxy: bool,
-        dscp: Option<u8>,
-        ignore_tc: bool,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
+            opts: opts.clone(),
             match_status,
             channel_receiver,
             channel_error_sender,
             channel_timeout_sender,
-            dns_address,
-            proxy,
-            dscp,
-            ignore_tc,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
         };
@@ -124,7 +126,7 @@ impl DnstapHandler {
     async fn maybe_setup_socket(&mut self) -> Result<()> {
         if self.socket.is_none() {
             // Determine whether to create an IPv4 or IPv6 client socket.
-            let local_address: SocketAddr = if self.dns_address.is_ipv4() {
+            let local_address: SocketAddr = if self.opts.dns.is_ipv4() {
                 "0.0.0.0:0"
             } else {
                 "[::]:0"
@@ -135,12 +137,12 @@ impl DnstapHandler {
             let socket = UdpSocket::bind(local_address).await?;
 
             // Set the DSCP value.
-            if let Some(dscp) = self.dscp {
+            if let Some(dscp) = self.opts.dscp {
                 set_udp_dscp(&socket, dscp)?;
             }
 
             // Connect the socket to the DNS server under test.
-            socket.connect(&self.dns_address).await?;
+            socket.connect(&self.opts.dns).await?;
 
             debug!("Connected socket to DNS server: {:?}", &socket);
 
@@ -305,7 +307,7 @@ impl DnstapHandler {
         let mut buf = BytesMut::with_capacity(1024);
 
         // Add the PROXY v2 payload, if the dnstap handler has been configured to do so.
-        if self.proxy {
+        if self.opts.proxy {
             add_proxy_payload(&mut buf, msg)?;
         }
 
@@ -338,7 +340,7 @@ impl DnstapHandler {
                         if response_message == received_message {
                             // Match.
                             crate::metrics::DNS_COMPARISONS.matched.inc();
-                        } else if self.ignore_tc
+                        } else if self.opts.ignore_tc
                             && (dns_message_is_truncated(response_message)
                                 || dns_message_is_truncated(received_message))
                         {

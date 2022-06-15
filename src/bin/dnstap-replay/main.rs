@@ -64,7 +64,7 @@ struct Server {
 
 /// Command-line arguments.
 #[derive(Parser, Clone)]
-struct Opts {
+pub struct Opts {
     /// Capacity of async channel for handler payload distribution
     #[clap(long, default_value = "10000")]
     channel_capacity: usize,
@@ -203,14 +203,11 @@ impl Server {
 
             // Create a new [`DnstapHandler`] and give it a cloned channel receiver.
             let mut dnstap_handler = DnstapHandler::new(
+                &self.opts,
                 match_status_dh,
                 self.channel_receiver.clone(),
                 self.channel_error_sender.clone(),
                 self.channel_timeout_sender.clone(),
-                self.opts.dns,
-                self.opts.proxy,
-                self.opts.dscp,
-                self.opts.ignore_tc,
             )
             .await?;
 
