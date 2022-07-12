@@ -18,33 +18,32 @@ use tokio_util::codec::Encoder as CodecEncoder;
 use dnstap_utils::dnstap;
 use dnstap_utils::framestreams_codec::{self, Frame, FrameStreamsCodec};
 
+use crate::Channels;
+
 /// Process HTTP requests.
 pub struct HttpHandler {
+    /// HTTP server socket to listen on.
     http_address: SocketAddr,
-    channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
-    channel_timeout_receiver: async_channel::Receiver<dnstap::Dnstap>,
+
+    /// Server channels.
+    channels: Channels,
 }
 
 impl HttpHandler {
     /// Create a new [`HttpHandler`] that listens on `http_address`. For the `/errors`
     /// endpoint, error dnstap payloads will be retrieved from `channel_error_receiver`.
-    pub fn new(
-        http_address: SocketAddr,
-        channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
-        channel_timeout_receiver: async_channel::Receiver<dnstap::Dnstap>,
-    ) -> Self {
+    pub fn new(http_address: SocketAddr, channels: &Channels) -> Self {
         HttpHandler {
             http_address,
-            channel_error_receiver,
-            channel_timeout_receiver,
+            channels: channels.clone(),
         }
     }
 
     /// Run the HTTP server.
     pub async fn run(&self) -> Result<()> {
         // Clone the channels for the outer closure.
-        let channel_error = self.channel_error_receiver.clone();
-        let channel_timeout = self.channel_timeout_receiver.clone();
+        let channel_error = self.channels.error_receiver.clone();
+        let channel_timeout = self.channels.timeout_receiver.clone();
 
         let make_svc = make_service_fn(move |_| {
             // Clone the channels again for the inner closure.
