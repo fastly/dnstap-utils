@@ -16,7 +16,7 @@ use dnstap_utils::util::dns_message_is_truncated;
 use dnstap_utils::util::try_from_u8_slice_for_ipaddr;
 use dnstap_utils::util::DnstapHandlerError;
 
-use crate::Opts;
+use crate::{Channels, Opts};
 
 /// Duration for [`DnstapHandler`]'s to wait for a response from the DNS server under test.
 const DNS_QUERY_TIMEOUT: Duration = Duration::from_millis(5000);
@@ -47,21 +47,12 @@ pub struct DnstapHandler {
     /// Server options.
     opts: Opts,
 
+    /// Server channels.
+    channels: Channels,
+
     /// The result of the status monitor check. Controls whether mismatches should be emitted into
     /// the errors channel (if true) or suppressed (if false).
     match_status: Arc<AtomicBool>,
-
-    /// The receive side of the async channel used by [`DnstapHandler`]'s to receive decoded
-    /// dnstap messages from the [`crate::FrameHandler`]'s.
-    channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
-
-    /// The send side of the async channel, used by [`DnstapHandler`]'s to send error dnstap
-    /// protobuf messages to the [`crate::HttpHandler`].
-    channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
-
-    /// The send side of the async channel, used by [`DnstapHandler`]'s to send timeout dnstap
-    /// protobuf messages to the [`crate::HttpHandler`].
-    channel_timeout_sender: async_channel::Sender<dnstap::Dnstap>,
 
     /// Per-handler DNS client socket to use to send DNS queries to the DNS server under test. This
     /// is an [`Option<UdpSocket>`] rather than a [`UdpSocket`] because in the case of a timeout
@@ -101,17 +92,13 @@ impl DnstapHandler {
     /// be sent via the channel `channel_timeout_sender`.
     pub async fn new(
         opts: &Opts,
+        channels: &Channels,
         match_status: Arc<AtomicBool>,
-        channel_receiver: async_channel::Receiver<dnstap::Dnstap>,
-        channel_error_sender: async_channel::Sender<dnstap::Dnstap>,
-        channel_timeout_sender: async_channel::Sender<dnstap::Dnstap>,
     ) -> Result<Self> {
         let mut handler = DnstapHandler {
             opts: opts.clone(),
+            channels: channels.clone(),
             match_status,
-            channel_receiver,
-            channel_error_sender,
-            channel_timeout_sender,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
         };
@@ -166,7 +153,7 @@ impl DnstapHandler {
     /// Receive dnstap protobuf payloads from a [`crate::FrameHandler`] and perform further
     /// processing.
     pub async fn run(&mut self) -> Result<()> {
-        while let Ok(d) = self.channel_receiver.recv().await {
+        while let Ok(d) = self.channels.receiver.recv().await {
             // Check if the UDP client socket needs to be re-created.
             self.maybe_setup_socket().await?;
 
@@ -374,7 +361,7 @@ impl DnstapHandler {
     }
 
     fn send_error(&self, d: dnstap::Dnstap) {
-        match self.channel_error_sender.try_send(d) {
+        match self.channels.error_sender.try_send(d) {
             Ok(_) => {
                 crate::metrics::CHANNEL_ERROR_TX.success.inc();
             }
@@ -385,7 +372,7 @@ impl DnstapHandler {
     }
 
     fn send_timeout(&self, d: dnstap::Dnstap) {
-        match self.channel_timeout_sender.try_send(d) {
+        match self.channels.timeout_sender.try_send(d) {
             Ok(_) => {
                 crate::metrics::CHANNEL_TIMEOUT_TX.success.inc();
             }

@@ -37,29 +37,35 @@ struct Server {
     /// Command-line options.
     opts: Opts,
 
+    /// Channels.
+    channels: Channels,
+}
+
+#[derive(Clone)]
+pub struct Channels {
     /// The send side of the async channel used by [`FrameHandler`]'s to send decoded dnstap
     /// protobuf messages to the [`DnstapHandler`]'s.
-    channel_sender: Sender<dnstap::Dnstap>,
+    sender: Sender<dnstap::Dnstap>,
 
     /// The receive side of the async channel used by [`DnstapHandler`]'s to receive decoded
     /// dnstap messages from the [`FrameHandler`]'s.
-    channel_receiver: Receiver<dnstap::Dnstap>,
+    receiver: Receiver<dnstap::Dnstap>,
 
     /// The send side of the async channel used by [`DnstapHandler`]'s to send error dnstap
     /// protobuf messages to the [`HttpHandler`].
-    channel_error_sender: Sender<dnstap::Dnstap>,
+    error_sender: Sender<dnstap::Dnstap>,
 
     /// The receive side of the async channel used by [`DnstapHandler`]'s to send error dnstap
     /// protobuf messages to the [`HttpHandler`].
-    channel_error_receiver: Receiver<dnstap::Dnstap>,
+    error_receiver: Receiver<dnstap::Dnstap>,
 
     /// The send side of the async channel used by [`DnstapHandler`]'s to send timeout dnstap
     /// protobuf messages to the [`HttpHandler`].
-    channel_timeout_sender: Sender<dnstap::Dnstap>,
+    timeout_sender: Sender<dnstap::Dnstap>,
 
     /// The receive side of the async channel used by [`DnstapHandler`]'s to send timeout dnstap
     /// protobuf messages to the [`HttpHandler`].
-    channel_timeout_receiver: Receiver<dnstap::Dnstap>,
+    timeout_receiver: Receiver<dnstap::Dnstap>,
 }
 
 /// Command-line arguments.
@@ -143,23 +149,24 @@ impl Server {
     /// Create a new [`Server`] and prepare its state.
     pub fn new(opts: &Opts) -> Self {
         // Create the channel for connecting [`FrameHandler`]'s and [`DnstapHandler`]'s.
-        let (channel_sender, channel_receiver) = bounded(opts.channel_capacity);
+        let (sender, receiver) = bounded(opts.channel_capacity);
 
         // Create the error channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
-        let (channel_error_sender, channel_error_receiver) = bounded(opts.channel_error_capacity);
+        let (error_sender, error_receiver) = bounded(opts.channel_error_capacity);
 
         // Create the timeout channel for connecting [`DnstapHandler`]'s and the [`HttpHandler`].
-        let (channel_timeout_sender, channel_timeout_receiver) =
-            bounded(opts.channel_timeout_capacity);
+        let (timeout_sender, timeout_receiver) = bounded(opts.channel_timeout_capacity);
 
         Server {
             opts: opts.clone(),
-            channel_sender,
-            channel_receiver,
-            channel_error_sender,
-            channel_error_receiver,
-            channel_timeout_sender,
-            channel_timeout_receiver,
+            channels: Channels {
+                sender,
+                receiver,
+                error_sender,
+                error_receiver,
+                timeout_sender,
+                timeout_receiver,
+            },
         }
     }
 
@@ -188,9 +195,7 @@ impl Server {
         }
 
         // Start up the [`HttpHandler`].
-        let http_handler = HttpHandler::new(self.opts.http,
-                                            self.channel_error_receiver.clone(),
-                                            self.channel_timeout_receiver.clone());
+        let http_handler = HttpHandler::new(self.opts.http, &self.channels);
         tokio::spawn(async move {
             if let Err(err) = http_handler.run().await {
                 error!("Hyper HTTP server error: {}", err);
@@ -202,14 +207,8 @@ impl Server {
             let match_status_dh = match_status.clone();
 
             // Create a new [`DnstapHandler`] and give it a cloned channel receiver.
-            let mut dnstap_handler = DnstapHandler::new(
-                &self.opts,
-                match_status_dh,
-                self.channel_receiver.clone(),
-                self.channel_error_sender.clone(),
-                self.channel_timeout_sender.clone(),
-            )
-            .await?;
+            let mut dnstap_handler =
+                DnstapHandler::new(&self.opts, &self.channels, match_status_dh).await?;
 
             // Spawn a new task to run the [`DnstapHandler`].
             tokio::spawn(async move {
@@ -239,7 +238,7 @@ impl Server {
             match listener.accept().await {
                 Ok((stream, _addr)) => {
                     // Create a [`FrameHandler`] for this connection.
-                    let mut frame_handler = FrameHandler::new(stream, self.channel_sender.clone());
+                    let mut frame_handler = FrameHandler::new(stream, self.channels.sender.clone());
 
                     // Spawn a new task to run the [`FrameHandler`].
                     tokio::spawn(async move {
