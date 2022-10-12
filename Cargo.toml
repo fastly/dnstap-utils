@@ -1,6 +1,6 @@
 [package]
 name = "dnstap-utils"
-version = "0.3.0"
+version = "0.3.1"
 description = "dnstap utilities"
 authors = ["Fastly"]
 keywords = ["dns", "dnstap"]
