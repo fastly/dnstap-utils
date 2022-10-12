@@ -1,6 +1,7 @@
 // Copyright 2021-2022 Fastly, Inc.
 
 use anyhow::Result;
+use async_channel::Receiver;
 use async_stream::stream;
 use bytes::{BufMut, BytesMut};
 use hyper::header::CONTENT_TYPE;
@@ -8,6 +9,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response};
 use hyper::{Method, StatusCode};
 use log::*;
+use prometheus::core::{AtomicU64, GenericCounter};
 use prometheus::Encoder as PrometheusEncoder;
 use prometheus::TextEncoder;
 use prost::Message;
@@ -27,6 +29,14 @@ pub struct HttpHandler {
 
     /// Server channels.
     channels: Channels,
+}
+
+/// Structure for encapsulating a channel together with the metric to be incremented when a payload
+/// is successfully read from the channel. Used below by the HTTP endpoints that read from the
+/// error and timeout channels.
+struct HttpChannel {
+    receiver: Receiver<dnstap::Dnstap>,
+    success_metric: &'static GenericCounter<AtomicU64>,
 }
 
 impl HttpHandler {
@@ -52,8 +62,14 @@ impl HttpHandler {
 
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    let channel_error = channel_error.clone();
-                    let channel_timeout = channel_timeout.clone();
+                    let channel_error = HttpChannel {
+                        receiver: channel_error.clone(),
+                        success_metric: &crate::metrics::CHANNEL_ERROR_RX.success,
+                    };
+                    let channel_timeout = HttpChannel {
+                        receiver: channel_timeout.clone(),
+                        success_metric: &crate::metrics::CHANNEL_TIMEOUT_RX.success,
+                    };
 
                     async move { http_service(req, channel_error, channel_timeout).await }
                 }))
@@ -69,20 +85,20 @@ impl HttpHandler {
 }
 
 /// Route HTTP requests based on method/path.
-pub async fn http_service(
+async fn http_service(
     req: Request<Body>,
-    channel_error_receiver: async_channel::Receiver<dnstap::Dnstap>,
-    channel_timeout_receiver: async_channel::Receiver<dnstap::Dnstap>,
+    channel_error: HttpChannel,
+    channel_timeout: HttpChannel,
 ) -> Result<Response<Body>> {
     match (req.method(), req.uri().path()) {
         // Handle the `/metrics` endpoint.
         (&Method::GET, "/metrics") => get_metrics_response(),
 
         // Handle the `/errors` endpoint.
-        (&Method::GET, "/errors") => get_channel_response(channel_error_receiver),
+        (&Method::GET, "/errors") => get_channel_response(channel_error),
 
         // Handle the `/timeouts` endpoint.
-        (&Method::GET, "/timeouts") => get_channel_response(channel_timeout_receiver),
+        (&Method::GET, "/timeouts") => get_channel_response(channel_timeout),
 
         // Default 404 Not Found response.
         _ => {
@@ -112,18 +128,17 @@ fn get_metrics_response() -> Result<Response<Body>> {
 
 /// Handle requests for the endpoints that return a Frame Streams formatted log file of dnstap
 /// payloads from a channel.
-fn get_channel_response(
-    channel: async_channel::Receiver<dnstap::Dnstap>,
-) -> Result<Response<Body>> {
+fn get_channel_response(channel: HttpChannel) -> Result<Response<Body>> {
     Ok(Response::new(Body::wrap_stream(dnstap_receiver_to_stream(
         channel,
     ))))
 }
 
-/// Read dnstap payloads from an [`async_channel::Receiver`], serialize them using the
-/// unidirectional Frame Streams encoding, and yield them to a [`tokio_stream::Stream`].
+/// Read dnstap payloads from the [`async_channel::Receiver`] embedded in an `HttpChannel`,
+/// serialize them using the unidirectional Frame Streams encoding, and yield them to a
+/// [`tokio_stream::Stream`]. Increments the success counter contained in the `HttpChannel`.
 fn dnstap_receiver_to_stream(
-    channel: async_channel::Receiver<dnstap::Dnstap>,
+    channel: HttpChannel,
 ) -> impl tokio_stream::Stream<Item = std::result::Result<BytesMut, std::io::Error>> {
     let mut f = FrameStreamsCodec {};
 
@@ -140,10 +155,10 @@ fn dnstap_receiver_to_stream(
 
         // Get each dnstap payload from the channel and write it to the stream.
         loop {
-            match channel.try_recv() {
+            match channel.receiver.try_recv() {
                 Ok(d) => {
                     // Accounting.
-                    crate::metrics::CHANNEL_ERROR_RX.success.inc();
+                    channel.success_metric.inc();
 
                     // Get the length of the serialized protobuf.
                     let len = d.encoded_len();
