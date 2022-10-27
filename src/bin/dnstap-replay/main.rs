@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_channel::{bounded, Receiver, Sender};
-use clap::{Parser, ValueHint};
+use clap::{ArgAction, Parser, ValueHint};
 use log::*;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -88,7 +88,9 @@ pub struct Opts {
     dns: SocketAddr,
 
     /// DSCP value to set on outgoing queries
-    #[clap(long, name = "DSCP code point", validator = is_dscp)]
+    #[clap(long,
+           name = "DSCP code point",
+           value_parser = clap::value_parser!(u8).range(0..63))]
     dscp: Option<u8>,
 
     /// HTTP server socket to listen on for stats and reporting
@@ -115,8 +117,8 @@ pub struct Opts {
     #[clap(long = "match-status-files",
            name = "STATUS-FILE",
            required = false,
-           min_values = 2,
-           parse(from_os_str),
+           num_args(2..),
+           value_parser,
            value_hint = ValueHint::FilePath)
     ]
     status_files: Vec<PathBuf>,
@@ -126,23 +128,8 @@ pub struct Opts {
     unix: String,
 
     /// Increase verbosity level
-    #[clap(short, long, parse(from_occurrences))]
-    verbose: usize,
-}
-
-#[cfg(unix)]
-fn is_dscp(val: &str) -> Result<(), String> {
-    // Parse 'val' as an integer, but only allow values between 0 and 63 inclusive since the DSCP
-    // field is a 6-bit quantity.
-    match val.parse() {
-        Ok(0..=63) => Ok(()),
-        _ => Err(String::from("DSCP code point must be in the range [0..63]")),
-    }
-}
-
-#[cfg(not(unix))]
-fn is_dscp(_val: &str) -> Result<(), String> {
-    Err(String::from("Cannot set DSCP values on this platform"))
+    #[clap(short, long, action = ArgAction::Count)]
+    verbose: u8,
 }
 
 impl Server {
@@ -259,7 +246,7 @@ fn main() -> Result<()> {
     let opts = Opts::parse();
 
     stderrlog::new()
-        .verbosity(opts.verbose)
+        .verbosity(opts.verbose as usize)
         .module(module_path!())
         .init()
         .unwrap();
