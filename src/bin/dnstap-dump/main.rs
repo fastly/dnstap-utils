@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2022 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use chrono::NaiveDateTime;
@@ -26,7 +26,7 @@ struct Opts {
     #[clap(short = 'r',
            long = "read",
            name = "FILE",
-           parse(from_os_str),
+           value_parser,
            value_hint = ValueHint::FilePath)
     ]
     file: PathBuf,
