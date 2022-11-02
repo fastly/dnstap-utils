@@ -245,7 +245,9 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
         }
 
         if let Some(optrec) = msg.opt() {
-            s.push_str("\n;; OPT PSEUDOSECTION:\n");
+            s.push('\n');
+            s.push_str(prefix);
+            s.push_str(";; OPT PSEUDOSECTION:\n");
             s.push_str(prefix);
             s.push_str("; EDNS: version ");
             s.push_str(&optrec.version().to_string());
@@ -258,6 +260,7 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
             s.push('\n');
 
             for opt in optrec.iter::<AllOptData<_>>().flatten() {
+                s.push_str(prefix);
                 match opt {
                     AllOptData::Nsid(nsid) => {
                         s.push_str("; NSID: ");
@@ -269,7 +272,6 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                                 s.push_str("\")");
                             }
                         }
-                        s.push('\n');
                     }
                     AllOptData::Dau(data) => {
                         s.push_str("; DAU:");
@@ -277,7 +279,6 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                             s.push(' ');
                             s.push_str(&alg.to_string());
                         }
-                        s.push('\n');
                     }
                     AllOptData::Dhu(data) => {
                         s.push_str("; DHU:");
@@ -285,7 +286,6 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                             s.push(' ');
                             s.push_str(&alg.to_string());
                         }
-                        s.push('\n');
                     }
                     AllOptData::N3u(data) => {
                         s.push_str("; N3U:");
@@ -293,7 +293,6 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                             s.push(' ');
                             s.push_str(&alg.to_string());
                         }
-                        s.push('\n');
                     }
                     AllOptData::Expire(expire) => {
                         s.push_str("; EXPIRE: ");
@@ -301,7 +300,6 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                             s.push_str(&expire_data.to_string());
                             s.push_str(" seconds");
                         }
-                        s.push('\n');
                     }
                     AllOptData::TcpKeepalive(data) => {
                         s.push_str("; TCP-KEEPALIVE: ");
@@ -310,32 +308,34 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                         s.push_str(&iseconds.to_string());
                         s.push('.');
                         s.push_str(&fseconds.to_string());
-                        s.push_str(" seconds\n");
+                        s.push_str(" seconds");
                     }
                     AllOptData::Padding(padding) => {
                         s.push_str("; PADDING: [");
                         s.push_str(&padding.len().to_string());
-                        s.push_str(" bytes]\n");
+                        s.push_str(" bytes]");
                     }
                     AllOptData::ClientSubnet(subnet) => {
-                        s.push_str("; CLIENT-SUBNET: ");
-                        s.push_str("\n;  NETWORK ADDRESS: ");
+                        s.push_str("; CLIENT-SUBNET:\n");
+                        s.push_str(prefix);
+                        s.push_str(";  NETWORK ADDRESS: ");
                         s.push_str(&subnet.addr().to_string());
-                        s.push_str("\n;  SOURCE PREFIX-LENGTH: ");
-                        s.push_str(&subnet.source_prefix_len().to_string());
-                        s.push_str("\n;  SCOPE PREFIX-LENGTH: ");
-                        s.push_str(&subnet.scope_prefix_len().to_string());
                         s.push('\n');
+                        s.push_str(prefix);
+                        s.push_str(";  SOURCE PREFIX-LENGTH: ");
+                        s.push_str(&subnet.source_prefix_len().to_string());
+                        s.push('\n');
+                        s.push_str(prefix);
+                        s.push_str(";  SCOPE PREFIX-LENGTH: ");
+                        s.push_str(&subnet.scope_prefix_len().to_string());
                     }
                     AllOptData::Cookie(data) => {
                         s.push_str("; COOKIE: ");
                         s.push_str(&hex::encode(data.cookie()));
-                        s.push('\n');
                     }
                     AllOptData::Chain(data) => {
                         s.push_str("; CHAIN: ");
                         s.push_str(&data.start().to_string());
-                        s.push('\n');
                     }
                     AllOptData::KeyTag(data) => {
                         s.push_str("; KEY-TAG:");
@@ -343,10 +343,10 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                             s.push(' ');
                             s.push_str(&keytag.to_string());
                         }
-                        s.push('\n');
                     }
                     AllOptData::ExtendedError(data) => {
                         s.push_str("; EXTENDED-DNS-ERROR:\n");
+                        s.push_str(prefix);
                         s.push_str(";  INFO-CODE: (");
                         s.push_str(&data.code().to_int().to_string());
                         s.push_str(") ");
@@ -354,9 +354,10 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                         s.push('\n');
                         if let Some(text) = data.text() {
                             if let Ok(text_str) = std::str::from_utf8(text) {
+                                s.push_str(prefix);
                                 s.push_str(";  EXTRA-TEXT: \"");
                                 s.push_str(text_str);
-                                s.push_str("\"\n");
+                                s.push('"');
                             }
                         }
                     }
@@ -365,12 +366,12 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                         s.push_str(&data.code().to_int().to_string());
                         s.push(':');
                         s.push_str(&hex::encode(data.data()).to_uppercase());
-                        s.push('\n');
                     }
                     _ => {
-                        s.push_str("; Other unknown EDNS option, giving up.\n");
+                        s.push_str("; Other unknown EDNS option, giving up.");
                     }
                 }
+                s.push('\n');
             }
         }
     }
