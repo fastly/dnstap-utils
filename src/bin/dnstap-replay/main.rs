@@ -3,6 +3,7 @@
 use anyhow::Result;
 use async_channel::{bounded, Receiver, Sender};
 use clap::{ArgAction, Parser, ValueHint};
+use ip_network::IpNetwork;
 use log::*;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -100,6 +101,10 @@ pub struct Opts {
     /// Whether to ignore UDP responses with the TC bit set
     #[clap(long)]
     ignore_tc: bool,
+
+    /// Ignore queries from this IPv4 or IPv6 network
+    #[clap(long, value_parser = clap::value_parser!(IpNetwork))]
+    ignore_query_net: Vec<IpNetwork>,
 
     /// Number of UDP client sockets to use to send queries to DNS server
     #[clap(long, default_value = "10")]
