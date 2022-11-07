@@ -25,6 +25,8 @@ heck = "0.4.0"
 hex = "0.4.3"
 hyper = { version = "0.14.20", features = ["server", "stream", "http1", "tcp"] }
 inotify = "0.10.0"
+ip_network = "0.4.1"
+ip_network_table = "0.2.0"
 lazy_static = "1.4.0"
 libc = "0.2.137"
 log = "0.4.17"
