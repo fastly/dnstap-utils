@@ -304,6 +304,14 @@ impl DnstapHandler {
             None => return Ok(()),
         };
 
+        // Extract the `query_address` field and convert it to an [`IpAddr`]. This is the IP
+        // address of the original client that sent the DNS query to the DNS server that logged the
+        // dnstap message.
+        let query_address = match &msg.query_address {
+            Some(addr) => try_from_u8_slice_for_ipaddr(addr)?,
+            None => bail!(DnstapHandlerError::MissingField),
+        };
+
         // Create a buffer for containing the original DNS client message, optionally with a PROXY
         // v2 header prepended. The PROXY v2 payload that we generate will be small (<100 bytes)
         // and DNS query messages are restricted by the protocol to a maximum size of 512 bytes.
@@ -311,7 +319,7 @@ impl DnstapHandler {
 
         // Add the PROXY v2 payload, if the dnstap handler has been configured to do so.
         if self.opts.proxy {
-            add_proxy_payload(&mut buf, msg)?;
+            add_proxy_payload(&mut buf, msg, &query_address)?;
         }
 
         // Add the original DNS query message.
@@ -399,15 +407,11 @@ impl DnstapHandler {
     }
 }
 
-fn add_proxy_payload(buf: &mut BytesMut, msg: &dnstap::Message) -> Result<()> {
-    // Extract the `query_address` field and convert it to an [`IpAddr`]. This is the IP
-    // address of the original client that sent the DNS query to the DNS server that logged the
-    // dnstap message.
-    let query_address = match &msg.query_address {
-        Some(addr) => try_from_u8_slice_for_ipaddr(addr)?,
-        None => bail!(DnstapHandlerError::MissingField),
-    };
-
+fn add_proxy_payload(
+    buf: &mut BytesMut,
+    msg: &dnstap::Message,
+    query_address: &IpAddr,
+) -> Result<()> {
     // Extract the `query_port` field.
     let query_port = match &msg.query_port {
         Some(port) => *port as u16,
