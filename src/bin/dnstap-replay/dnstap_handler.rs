@@ -2,6 +2,7 @@
 
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
+use ip_network_table::IpNetworkTable;
 use log::*;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,6 +51,9 @@ pub struct DnstapHandler {
     /// Server channels.
     channels: Channels,
 
+    /// Networks to ignore queries from.
+    ignore_query_nets: Option<IpNetworkTable<bool>>,
+
     /// The result of the status monitor check. Controls whether mismatches should be emitted into
     /// the errors channel (if true) or suppressed (if false).
     match_status: Arc<AtomicBool>,
@@ -95,9 +99,21 @@ impl DnstapHandler {
         channels: &Channels,
         match_status: Arc<AtomicBool>,
     ) -> Result<Self> {
+        // Create the IpNetworkTable of networks to ignore queries from.
+        let ignore_query_nets = if !opts.ignore_query_net.is_empty() {
+            let mut table = IpNetworkTable::new();
+            for net in &opts.ignore_query_net {
+                table.insert(*net, true);
+            }
+            Some(table)
+        } else {
+            None
+        };
+
         let mut handler = DnstapHandler {
             opts: opts.clone(),
             channels: channels.clone(),
+            ignore_query_nets,
             match_status,
             socket: None,
             recv_buf: [0; DNS_RESPONSE_BUFFER_SIZE],
