@@ -312,6 +312,15 @@ impl DnstapHandler {
             None => bail!(DnstapHandlerError::MissingField),
         };
 
+        // Check whether the query address matches any network in the table of networks to ignore
+        // queries from.
+        if let Some(table) = &self.ignore_query_nets {
+            if table.longest_match(query_address).is_some() {
+                crate::metrics::DNS_COMPARISONS.query_net_ignored.inc();
+                return Ok(());
+            };
+        };
+
         // Create a buffer for containing the original DNS client message, optionally with a PROXY
         // v2 header prepended. The PROXY v2 payload that we generate will be small (<100 bytes)
         // and DNS query messages are restricted by the protocol to a maximum size of 512 bytes.
