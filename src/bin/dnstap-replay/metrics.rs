@@ -39,6 +39,7 @@ make_static_metric! {
             mismatched,
             suppressed,
             udp_tc_ignored,
+            query_net_ignored,
         },
     }
 
