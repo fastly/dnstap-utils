@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "dnstap-utils"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-channel",
