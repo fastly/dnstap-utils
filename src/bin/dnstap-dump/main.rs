@@ -1,4 +1,4 @@
-// Copyright 2021-2022 Fastly, Inc.
+// Copyright 2021-2023 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use chrono::NaiveDateTime;
@@ -163,26 +163,25 @@ fn fmt_dnstap_message(s: &mut String, msg: &dnstap::Message) {
 
     if let Some(query_time_sec) = msg.query_time_sec {
         if let Ok(query_time_sec) = i64::try_from(query_time_sec) {
-            s.push_str("  query_time: !!timestamp ");
-            s.push_str(
-                &NaiveDateTime::from_timestamp(query_time_sec, msg.query_time_nsec.unwrap_or(0))
-                    .to_string(),
-            );
-            s.push('\n');
+            if let Some(dt) =
+                NaiveDateTime::from_timestamp_opt(query_time_sec, msg.query_time_nsec())
+            {
+                s.push_str("  query_time: !!timestamp ");
+                s.push_str(&dt.to_string());
+                s.push('\n');
+            }
         }
     }
 
     if let Some(response_time_sec) = msg.response_time_sec {
         if let Ok(response_time_sec) = i64::try_from(response_time_sec) {
-            s.push_str("  response_time: !!timestamp ");
-            s.push_str(
-                &NaiveDateTime::from_timestamp(
-                    response_time_sec,
-                    msg.response_time_nsec.unwrap_or(0),
-                )
-                .to_string(),
-            );
-            s.push('\n');
+            if let Some(dt) =
+                NaiveDateTime::from_timestamp_opt(response_time_sec, msg.response_time_nsec())
+            {
+                s.push_str("  response_time: !!timestamp ");
+                s.push_str(&dt.to_string());
+                s.push('\n');
+            }
         }
     }
 
