@@ -70,22 +70,31 @@ In order to avoid this problem, `dnstap-replay` can use the haproxy
 [PROXY] protocol to prepend the original source address and source port
 as logged in the `query_address` and `query_port` dnstap message fields
 to the outgoing DNS query message sent to the target nameserver. This
-requires support in the target nameserver. Currently, [dnsdist],
-[PowerDNS Authoritative Nameserver], and [PowerDNS Recursor] have
-support for the PROXY header. For [Knot DNS], there is an open issue
-regarding adding support. Additionally, we developed a [patch for Knot]
-that implements support for PROXY headers for UDP queries that are sent
-from a 127.0.0.0/8 network address.
+requires support in the target nameserver. Currently, at least
+[dnsdist], [PowerDNS Authoritative Nameserver], [PowerDNS Recursor], and
+[Knot DNS] have support for the PROXY header.
 
 To enable this functionality in `dnstap-replay`, add the `--proxy`
 option to the command-line parameters.
+
+Support for PROXYv2 as a connection target was added in Knot DNS version
+3.2.2, which adds a configuration option [`proxy_allowlist`] that lists
+the IP addresses that are allowed to initiate queries with the PROXYv2
+header. It is enabled by placing the option in the `server`
+configuration stanza, for instance:
+
+```
+server:
+    […]
+    proxy-allowlist: 127.0.0.0/8
+```
 
 [PROXY]: https://www.haproxy.org/download/2.5/doc/proxy-protocol.txt
 [dnsdist]: https://blog.powerdns.com/2021/05/11/dnsdist-1-6-0-released/
 [PowerDNS Authoritative Nameserver]: https://github.com/PowerDNS/pdns/pull/10660
 [PowerDNS Recursor]: https://github.com/PowerDNS/pdns/pull/8874
-[Knot DNS]: https://gitlab.nic.cz/knot/knot-dns/-/issues/762
-[patch for Knot]: https://github.com/fastly/dnstap-utils/blob/main/patches/knot-dns/0001-Support-haproxy-PROXY-v2-protocol-on-incoming-UDP-pa.patch
+[Knot DNS]: https://gitlab.nic.cz/knot/knot-dns/-/merge_requests/1468
+[`proxy_allowlist`]: https://www.knot-dns.cz/docs/3.2/html/reference.html?highlight=proxy#proxy-allowlist
 
 ### `dnstap-replay`: HTTP server
 
