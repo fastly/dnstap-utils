@@ -238,7 +238,6 @@ dependencies = [
  "chrono",
  "clap",
  "domain",
- "extfmt",
  "futures",
  "futures-util",
  "heck",
@@ -254,7 +253,6 @@ dependencies = [
  "prometheus-static-metric",
  "prost",
  "prost-build",
- "simple-error",
  "stderrlog",
  "thiserror",
  "tokio",
@@ -303,12 +301,6 @@ name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
-
-[[package]]
-name = "extfmt"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a48fe53466ab1f4ea6303bf9d7a0ca8060778590f09fd6c3304cc817aeb9935d"
 
 [[package]]
 name = "fastrand"
@@ -1068,12 +1060,6 @@ checksum = "e51e73328dc4ac0c7ccbda3a494dfa03df1de2f46018127f60c693f2648455b0"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "simple-error"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc47a29ce97772ca5c927f75bac34866b16d64e07f330c3248e2d7226623901b"
 
 [[package]]
 name = "slab"
