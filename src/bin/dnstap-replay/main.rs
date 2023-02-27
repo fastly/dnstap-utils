@@ -1,4 +1,4 @@
-// Copyright 2021-2022 Fastly, Inc.
+// Copyright 2021-2023 Fastly, Inc.
 
 use anyhow::Result;
 use async_channel::{bounded, Receiver, Sender};
@@ -113,6 +113,10 @@ pub struct Opts {
     /// Whether to add PROXY v2 header to re-sent DNS queries
     #[clap(long)]
     proxy: bool,
+
+    /// Whether to add timespec TLV to PROXY v2 header
+    #[clap(long)]
+    proxy_timespec: bool,
 
     /// Time to delay after status files match
     #[clap(long, name = "MILLISECONDS", default_value = "5000", required = false)]
