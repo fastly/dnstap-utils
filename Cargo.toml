@@ -13,10 +13,10 @@ include = ["src/**/*", "LICENSE", "README.md", "dnstap.pb/dnstap.proto", "build.
 [dependencies]
 anyhow = "1.0.69"
 async-channel = "1.8.0"
-async-stream = "0.3.3"
+async-stream = "0.3.4"
 bytes = "1.4.0"
 chrono = { version = "0.4.23", features = ["serde"] }
-clap = { version = "4.1.4", features = ["derive"] }
+clap = { version = "4.1.8", features = ["derive"] }
 domain = "0.7.1"
 futures = "0.3.26"
 futures-util = "0.3.26"
@@ -31,12 +31,12 @@ libc = "0.2.139"
 log = "0.4.17"
 prometheus = "0.13.3"
 prometheus-static-metric = "0.5.1"
-prost = "0.11.6"
+prost = "0.11.8"
 stderrlog = "0.5.4"
 thiserror = "1.0.38"
 tokio = { version = "1.25.0", features = ["full"] }
-tokio-stream = "0.1.11"
-tokio-util = { version = "0.7.4", features = ["codec", "io"] }
+tokio-stream = "0.1.12"
+tokio-util = { version = "0.7.7", features = ["codec", "io"] }
 
 [build-dependencies]
-prost-build = "0.11.6"
+prost-build = "0.11.8"
