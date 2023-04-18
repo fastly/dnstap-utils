@@ -31,7 +31,7 @@ log = "0.4.17"
 prometheus = "0.13.3"
 prometheus-static-metric = "0.5.1"
 prost = "0.11.8"
-stderrlog = "0.5.4"
+stderrlog = { version = "0.5.4", default-features = false }
 thiserror = "1.0.38"
 time = { version = "0.3.20", features = ["formatting", "macros"] }
 tokio = { version = "1.25.0", features = ["full"] }
