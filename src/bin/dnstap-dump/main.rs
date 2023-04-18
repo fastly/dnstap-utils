@@ -1,11 +1,9 @@
 // Copyright 2021-2023 Fastly, Inc.
 
 use anyhow::{bail, Result};
-use chrono::NaiveDateTime;
 use clap::{Parser, ValueHint};
 use heck::ToShoutySnekCase;
 use prost::Message;
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::Write;
 use std::path::PathBuf;
@@ -18,6 +16,7 @@ use dnstap_utils::framestreams_codec::{Frame, FrameStreamsCodec};
 use dnstap_utils::util::deserialize_dnstap_handler_error;
 use dnstap_utils::util::fmt_dns_message;
 use dnstap_utils::util::try_from_u8_slice_for_ipaddr;
+use dnstap_utils::util::unix_epoch_timestamp_to_string;
 use dnstap_utils::util::DnstapHandlerError;
 
 #[derive(Parser, Debug)]
@@ -162,26 +161,18 @@ fn fmt_dnstap_message(s: &mut String, msg: &dnstap::Message) {
     s.push('\n');
 
     if let Some(query_time_sec) = msg.query_time_sec {
-        if let Ok(query_time_sec) = i64::try_from(query_time_sec) {
-            if let Some(dt) =
-                NaiveDateTime::from_timestamp_opt(query_time_sec, msg.query_time_nsec())
-            {
-                s.push_str("  query_time: !!timestamp ");
-                s.push_str(&dt.to_string());
-                s.push('\n');
-            }
+        if let Ok(dt) = unix_epoch_timestamp_to_string(query_time_sec, msg.query_time_nsec) {
+            s.push_str("  query_time: !!timestamp ");
+            s.push_str(&dt);
+            s.push('\n');
         }
     }
 
     if let Some(response_time_sec) = msg.response_time_sec {
-        if let Ok(response_time_sec) = i64::try_from(response_time_sec) {
-            if let Some(dt) =
-                NaiveDateTime::from_timestamp_opt(response_time_sec, msg.response_time_nsec())
-            {
-                s.push_str("  response_time: !!timestamp ");
-                s.push_str(&dt.to_string());
-                s.push('\n');
-            }
+        if let Ok(dt) = unix_epoch_timestamp_to_string(response_time_sec, msg.response_time_nsec) {
+            s.push_str("  response_time: !!timestamp ");
+            s.push_str(&dt);
+            s.push('\n');
         }
     }
 

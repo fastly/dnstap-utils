@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2023 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -6,6 +6,27 @@ use domain::base::opt::AllOptData;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use thiserror::Error;
+use time::OffsetDateTime;
+
+/// Utility function to convert a Unix epoch timestamp specified as a (u64, u32) tuple into a human
+/// readable timestamp.
+
+const TIME_FORMAT: &[time::format_description::FormatItem<'_>] =
+    time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+
+pub fn unix_epoch_timestamp_to_string(sec: u64, nsec: Option<u32>) -> Result<String> {
+    let mut s = String::new();
+
+    let sec = i64::try_from(sec)?;
+    let dt = OffsetDateTime::from_unix_timestamp(sec)?;
+    s.push_str(&dt.format(&TIME_FORMAT)?);
+
+    if let Some(nsec) = nsec {
+        s.push_str(&format!(".{:09}", nsec));
+    }
+
+    Ok(s)
+}
 
 /// Utility function that converts a slice of bytes into an [`IpAddr`]. Slices of length 4 are
 /// converted to IPv4 addresses and slices of length 16 are converted to IPv6 addresses. All other
