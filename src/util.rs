@@ -1,10 +1,11 @@
-// Copyright 2021-2023 Fastly, Inc.
+// Copyright 2021-2024 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use domain::base::opt::AllOptData;
 use std::convert::TryFrom;
 use std::net::IpAddr;
+use std::time::Duration;
 use thiserror::Error;
 use time::OffsetDateTime;
 
@@ -280,7 +281,7 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
             s.push_str(&optrec.udp_payload_size().to_string());
             s.push('\n');
 
-            for opt in optrec.iter::<AllOptData<_>>().flatten() {
+            for opt in optrec.opt().iter::<AllOptData<_, _>>().flatten() {
                 s.push_str(prefix);
                 match opt {
                     AllOptData::Nsid(nsid) => {
@@ -323,17 +324,14 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                         }
                     }
                     AllOptData::TcpKeepalive(data) => {
-                        s.push_str("; TCP-KEEPALIVE: ");
-                        let iseconds = data.timeout() / 10;
-                        let fseconds = data.timeout() % 10;
-                        s.push_str(&iseconds.to_string());
-                        s.push('.');
-                        s.push_str(&fseconds.to_string());
-                        s.push_str(" seconds");
+                        s.push_str("; TCP-KEEPALIVE");
+                        if let Some(timeout) = data.timeout() {
+                            s.push_str(&format!(": {:?}", Duration::from(timeout)));
+                        }
                     }
                     AllOptData::Padding(padding) => {
                         s.push_str("; PADDING: [");
-                        s.push_str(&padding.len().to_string());
+                        s.push_str(&padding.as_slice().len().to_string());
                         s.push_str(" bytes]");
                     }
                     AllOptData::ClientSubnet(subnet) => {
@@ -352,7 +350,7 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                     }
                     AllOptData::Cookie(data) => {
                         s.push_str("; COOKIE: ");
-                        s.push_str(&hex::encode(data.cookie()));
+                        s.push_str(&hex::encode(data.client()));
                     }
                     AllOptData::Chain(data) => {
                         s.push_str("; CHAIN: ");
@@ -373,13 +371,11 @@ pub fn fmt_dns_message(s: &mut String, prefix: &str, raw_msg_bytes: &[u8]) {
                         s.push_str(") ");
                         s.push_str(&data.code().to_string());
                         s.push('\n');
-                        if let Some(text) = data.text() {
-                            if let Ok(text_str) = std::str::from_utf8(text) {
-                                s.push_str(prefix);
-                                s.push_str(";  EXTRA-TEXT: \"");
-                                s.push_str(text_str);
-                                s.push('"');
-                            }
+                        if let Some(Ok(text_str)) = data.text() {
+                            s.push_str(prefix);
+                            s.push_str(";  EXTRA-TEXT: \"");
+                            s.push_str(text_str);
+                            s.push('"');
                         }
                     }
                     AllOptData::Other(data) => {
