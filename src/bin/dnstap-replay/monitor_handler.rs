@@ -13,7 +13,7 @@ use tokio::time::{sleep, Duration};
 
 /// Monitor status files for changes and detect when all status files are identical.
 pub struct MonitorHandler {
-    inotify: Inotify,
+    inotify: Option<Inotify>,
     monitors: Vec<FileMonitor>,
     delay: u64,
 }
@@ -25,7 +25,7 @@ impl MonitorHandler {
         let inotify = Inotify::init().context("Failed to initialize inotify")?;
 
         let mut monitor = MonitorHandler {
-            inotify,
+            inotify: Some(inotify),
             monitors: vec![],
             delay,
         };
@@ -40,7 +40,8 @@ impl MonitorHandler {
     /// Perform status file monitoring.
     pub async fn run(&mut self, status: Arc<AtomicBool>) -> Result<()> {
         let mut buffer = [0; 1024];
-        let mut stream = self.inotify.event_stream(&mut buffer)?;
+        let inotify = std::mem::take(&mut self.inotify);
+        let mut stream = inotify.unwrap().into_event_stream(&mut buffer)?;
 
         // Perform an initial check of the current status files, if any. Since inotify is
         // event-driven, events won't be received for pre-existing status files.
@@ -76,7 +77,7 @@ impl MonitorHandler {
     /// Add a file path to the set of status files to monitor.
     fn add_watch<P: AsRef<Path>>(&mut self, watch_path: P) -> Result<()> {
         info!("Monitoring '{}' for changes", watch_path.as_ref().display());
-        let mut monitor = FileMonitor::new(&mut self.inotify, watch_path)?;
+        let mut monitor = FileMonitor::new(self.inotify.as_mut().unwrap(), watch_path)?;
         monitor.update();
         self.monitors.push(monitor);
         Ok(())
@@ -163,7 +164,7 @@ impl FileMonitor {
         let full_name = watch_dir.join(&base_name);
 
         // Watch the directory using inotify.
-        let wd = inotify.add_watch(
+        let wd = inotify.watches().add(
             &watch_dir,
             WatchMask::CLOSE_WRITE
                 | WatchMask::DELETE
