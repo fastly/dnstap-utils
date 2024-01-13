@@ -39,4 +39,4 @@ tokio-stream = "0.1.14"
 tokio-util = { version = "0.7.10", features = ["codec", "io"] }
 
 [build-dependencies]
-prost-build = "0.11.9"
+prost-build = "0.12.3"
