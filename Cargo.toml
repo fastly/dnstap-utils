@@ -30,7 +30,7 @@ libc = "0.2.152"
 log = "0.4.20"
 prometheus = "0.13.3"
 prometheus-static-metric = "0.5.1"
-prost = "0.11.9"
+prost = "0.12.3"
 stderrlog = { version = "0.5.4", default-features = false }
 thiserror = "1.0.56"
 time = { version = "0.3.31", features = ["formatting", "macros"] }
