@@ -1,4 +1,4 @@
-// Copyright 2021-2023 Fastly, Inc.
+// Copyright 2021-2024 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use bytes::{BufMut, Bytes, BytesMut};
@@ -189,7 +189,7 @@ impl DnstapHandler {
     /// `AUTH_RESPONSE`, perform further processing on it.
     async fn process_dnstap(&mut self, mut d: dnstap::Dnstap) -> Result<()> {
         // Currently only "Message" objects are defined.
-        if dnstap::dnstap::Type::from_i32(d.r#type) != Some(dnstap::dnstap::Type::Message) {
+        if dnstap::dnstap::Type::try_from(d.r#type) != Ok(dnstap::dnstap::Type::Message) {
             return Ok(());
         }
 
@@ -199,7 +199,7 @@ impl DnstapHandler {
         };
 
         // Check if this is an `AUTH_RESPONSE` type dnstap "Message" object.
-        if dnstap::message::Type::from_i32(msg.r#type) != Some(dnstap::message::Type::AuthResponse)
+        if dnstap::message::Type::try_from(msg.r#type) != Ok(dnstap::message::Type::AuthResponse)
         {
             return Ok(());
         }
@@ -287,8 +287,8 @@ impl DnstapHandler {
         // re-sent over UDP it may elicit different behavior compared to the original transport.
         match &msg.socket_protocol {
             Some(socket_protocol) => {
-                if dnstap::SocketProtocol::from_i32(*socket_protocol)
-                    != Some(dnstap::SocketProtocol::Udp)
+                if dnstap::SocketProtocol::try_from(*socket_protocol)
+                    != Ok(dnstap::SocketProtocol::Udp)
                 {
                     bail!(DnstapHandlerInternalError::DiscardNonUdp);
                 }

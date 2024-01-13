@@ -1,4 +1,4 @@
-// Copyright 2021-2023 Fastly, Inc.
+// Copyright 2021-2024 Fastly, Inc.
 
 use anyhow::{bail, Result};
 use clap::{Parser, ValueHint};
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
 }
 
 fn fmt_dnstap(s: &mut String, d: dnstap::Dnstap) {
-    if let Some(dtype) = dnstap::dnstap::Type::from_i32(d.r#type) {
+    if let Ok(dtype) = dnstap::dnstap::Type::try_from(d.r#type) {
         s.push_str("type: ");
         s.push_str(&format!("{:?}", dtype).TO_SHOUTY_SNEK_CASE());
         s.push('\n');
