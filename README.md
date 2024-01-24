@@ -174,6 +174,15 @@ hex-encoded wire format as well as in dig-style output.
 
 [`dnstap-ldns`]: https://github.com/dnstap/dnstap-ldns
 
+## `dnstap-inject`
+
+`dnstap-inject` is a utility which reads a Frame Streams formatted
+dnstap file, extracts messages which contain both a `query_address` and
+`query_message` field, and re-sends the query message to a DNS server.
+It can optionally prepend a PROXYv2 header to the query sent to the DNS
+server (if supported by the server) in order to exercise source address
+dependent behavior.
+
 ## `fmt-dns-message`
 
 `fmt-dns-message` is a utility which converts a hex-encoded wire format
