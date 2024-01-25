@@ -1,4 +1,4 @@
-// Copyright 2021 Fastly, Inc.
+// Copyright 2021-2024 Fastly, Inc.
 
 pub mod dnstap {
     #![allow(clippy::module_inception)]
@@ -8,4 +8,5 @@ pub mod dnstap {
 
 pub mod framestreams_codec;
 
+pub mod proxyv2;
 pub mod util;
